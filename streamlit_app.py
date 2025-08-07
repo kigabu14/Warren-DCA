@@ -2,6 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import io
+import datetime
+import numpy as np
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -18,19 +20,11 @@ def df_human_format(df):
     return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
 # ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
-
 def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
-    """
-    คืน dict: {
-      'details': list ของแต่ละข้อ [{'title':..., 'result':1/0/-1, 'desc':...}],
-      'score': int, 'evaluated': int, 'score_pct': int
-    }
-    """
     results = []
     score = 0
     evaluated = 0
 
-    # 1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง
     try:
         inv = []
         for col in balance_sheet.columns:
@@ -50,7 +44,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง','result':res,'desc':'Inventory และ Net Income ต้องโตต่อเนื่อง'})
     if res != -1: score += res; evaluated += 1
 
-    # 1.2 ไม่มี R&D
     try:
         r_and_d = any(financials.index.str.contains('Research',case=False))
         res = 0 if r_and_d else 1
@@ -59,7 +52,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'1.2 ไม่มี Research & Development','result':res,'desc':'ไม่มีค่าใช้จ่าย R&D'})
     if res != -1: score += res; evaluated += 1
 
-    # 2. EBITDA > Current Liabilities ทุกปี
     try:
         ebitda = []
         cl = []
@@ -77,7 +69,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'2. EBITDA > Current Liabilities ทุกปี','result':res,'desc':'EBITDA มากกว่าหนี้สินหมุนเวียนทุกปี'})
     if res != -1: score += res; evaluated += 1
 
-    # 3. PPE เพิ่มขึ้น (ไม่มี spike)
     try:
         ppe = []
         for col in balance_sheet.columns:
@@ -95,7 +86,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'3. PPE เพิ่มขึ้น (ไม่มี spike)','result':res,'desc':'Property, Plant & Equipment โตต่อเนื่อง'})
     if res != -1: score += res; evaluated += 1
 
-    # 4.1 RTA ≥ 11%
     try:
         ebitda = []
         ta = []
@@ -115,7 +105,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'4.1 RTA ≥ 11%','result':res,'desc':'Return on Total Assets เฉลี่ย ≥ 11%'})
     if res != -1: score += res; evaluated += 1
 
-    # 4.2 RTA ≥ 17%
     try:
         res = 1 if avg_rta >= 0.17 else 0
     except:
@@ -123,7 +112,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'4.2 RTA ≥ 17%','result':res,'desc':'Return on Total Assets เฉลี่ย ≥ 17%'})
     if res != -1: score += res; evaluated += 1
 
-    # 5.1 LTD/Total Assets ≤ 0.5
     try:
         ltd = []
         for col in balance_sheet.columns:
@@ -138,7 +126,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'5.1 LTD/Total Assets ≤ 0.5','result':res,'desc':'อัตราส่วนหนี้สินระยะยาว ≤ 0.5'})
     if res != -1: score += res; evaluated += 1
 
-    # 5.2 EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี
     try:
         last_ebitda = ebitda[-1] if ebitda else None
         last_ltd = ltd[-1] if ltd else None
@@ -151,7 +138,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'5.2 EBITDA จ่ายหนี้ LTD หมดใน ≤ 4 ปี','result':res,'desc':'EBITDA ล่าสุดชำระหนี้ LTD หมดใน ≤ 4 ปี'})
     if res != -1: score += res; evaluated += 1
 
-    # 6.1 มีปีไหน Equity ติดลบหรือไม่
     try:
         se = []
         for col in balance_sheet.columns:
@@ -165,7 +151,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'6.1 Equity ติดลบในปีใดหรือไม่','result':res,'desc':'ถ้าติดลบ ข้าม 6.2-6.3'})
     if res != -1: evaluated += 1  # ไม่บวกคะแนน
 
-    # 6.2 DSER ≤ 1.0
     try:
         if not neg_se:
             tl = []
@@ -188,7 +173,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'6.2 DSER ≤ 1.0','result':res,'desc':'Debt to Shareholder Equity Ratio ≤ 1.0'})
     if res != -1: score += res; evaluated += 1
 
-    # 6.3 DSER ≤ 0.8
     try:
         res = 1 if not neg_se and avg_dser <= 0.8 else ( -1 if neg_se else 0)
     except:
@@ -196,7 +180,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'6.3 DSER ≤ 0.8','result':res,'desc':'Debt to Shareholder Equity Ratio ≤ 0.8'})
     if res != -1: score += res; evaluated += 1
 
-    # 7. ไม่มี Preferred Stock
     try:
         pref = any(balance_sheet.index.str.contains('Preferred',case=False))
         res = 0 if pref else 1
@@ -205,7 +188,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'7. ไม่มี Preferred Stock','result':res,'desc':'ไม่มีหุ้นบุริมสิทธิ'})
     if res != -1: score += res; evaluated += 1
 
-    # 8.1 Retained Earnings เติบโต ≥ 7%
     try:
         re = []
         for col in balance_sheet.columns:
@@ -220,7 +202,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'8.1 Retained Earnings เติบโต ≥ 7%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 7%'})
     if res != -1: score += res; evaluated += 1
 
-    # 8.2 ≥ 13.5%
     try:
         res = 1 if avg_re_growth >= 0.135 else 0
     except:
@@ -228,7 +209,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'8.2 Retained Earnings เติบโต ≥ 13.5%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 13.5%'})
     if res != -1: score += res; evaluated += 1
 
-    # 8.3 ≥ 17%
     try:
         res = 1 if avg_re_growth >= 0.17 else 0
     except:
@@ -236,7 +216,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'8.3 Retained Earnings เติบโต ≥ 17%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 17%'})
     if res != -1: score += res; evaluated += 1
 
-    # 9. มี Treasury Stock
     try:
         ts = []
         for col in balance_sheet.columns:
@@ -249,7 +228,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'9. มี Treasury Stock','result':res,'desc':'มี Treasury Stock หรือไม่'})
     if res != -1: score += res; evaluated += 1
 
-    # 10. ROE ≥ 23%
     try:
         roe = [ebitda[i]/se[i] for i in range(min(len(ebitda),len(se))) if se[i]!=0]
         avg_roe = sum(roe)/len(roe) if roe else 0
@@ -259,7 +237,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     results.append({'title':'10. ROE ≥ 23%','result':res,'desc':'Return on Shareholders Equity เฉลี่ย ≥ 23%'})
     if res != -1: score += res; evaluated += 1
 
-    # 11. Goodwill เพิ่มขึ้น
     try:
         gw = []
         for col in balance_sheet.columns:
@@ -275,7 +252,6 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
     score_pct = int(score / evaluated * 100) if evaluated > 0 else 0
     return {'details': results, 'score': score, 'evaluated': evaluated, 'score_pct': score_pct}
 
-# Badge function
 def get_badge(score_pct):
     if score_pct >= 80:
         return "🟢 ดีเยี่ยม (Excellent)"
@@ -364,7 +340,6 @@ if menu == "คู่มือการใช้งาน":
 """)
     st.stop()
 
-# หน้า "วิเคราะห์หุ้น"
 tickers = st.multiselect(
     "เลือกหุ้น (US & SET100)",
     all_tickers,
@@ -383,8 +358,65 @@ if st.button("วิเคราะห์"):
         cf = stock.cashflow
         div = stock.dividends
         hist = stock.history(period=period)
+        info = stock.info
 
         with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
+            # ส่วนข้อมูลราคาหุ้นและปันผลล่าสุด
+            st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
+
+            # 1. Dividend Yield (% ต่อปี)
+            div_yield = info.get('dividendYield', None)
+            div_yield_pct = round(div_yield * 100, 2) if div_yield is not None else "N/A"
+
+            # 2. วันที่ปันผลล่าสุด (Ex-Dividend Date)
+            ex_div = info.get('exDividendDate', None)
+            if ex_div:
+                try:
+                    ex_div_date = datetime.datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
+                except:
+                    ex_div_date = str(ex_div)
+            else:
+                ex_div_date = "N/A"
+
+            # 3. 52-Week High / Low
+            w52_high = info.get('fiftyTwoWeekHigh', "N/A")
+            w52_low = info.get('fiftyTwoWeekLow', "N/A")
+
+            # 4. ราคาปิดล่าสุด, ราคาเปิดล่าสุด
+            last_close = info.get('previousClose', "N/A")
+            last_open = info.get('open', "N/A")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Dividend Yield (%)", div_yield_pct)
+                st.metric("Ex-Dividend Date", ex_div_date)
+            with col2:
+                st.metric("52W High", w52_high)
+                st.metric("52W Low", w52_low)
+            with col3:
+                st.metric("ราคาปิดล่าสุด", last_close)
+                st.metric("ราคาเปิดล่าสุด", last_open)
+
+            # --------- สรุปปันผลย้อนหลัง 1 ปี (แยกชัดเจน) ---------
+            st.subheader("ผลตอบแทนเงินปันผลย้อนหลัง 1 ปี (คำนวณจากราคาจริง)")
+            if not div.empty and not hist.empty:
+                last_year = hist.index[-1] - pd.DateOffset(years=1)
+                recent_div = div[div.index >= last_year]
+                total_div = recent_div.sum()
+                avg_price = hist['Close'][hist.index >= last_year].mean()
+                price_base = avg_price if avg_price and avg_price > 0 else hist['Close'].iloc[-1]
+                manual_yield = (total_div / price_base) * 100 if price_base > 0 else np.nan
+
+                st.markdown(f"""
+                <div style='font-size:1.1em;'>
+                <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div:.2f}</span><br>
+                <b>ราคาเฉลี่ย 1 ปี:</b> <span style='color:blue'>{price_base:.2f}</span><br>
+                <b>อัตราผลตอบแทน (Dividend Yield):</b> <span style='color:red;font-size:1.3em'>{manual_yield:.2f}%</span>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("ไม่มีข้อมูลปันผลย้อนหลัง (dividends) สำหรับหุ้นนี้")
+
             st.subheader("Buffett 11 Checklist (แบบละเอียด)")
             detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
             badge = get_badge(detail['score_pct'])
@@ -415,13 +447,21 @@ if st.button("วิเคราะห์"):
                 st.subheader("งบกำไรขาดทุน (Income Statement)")
                 st.dataframe(df_human_format(fin))
 
-            # export
+            # -- เตรียม export (ดึงค่า manual yield ด้วย) --
             export_list.append({
                 "หุ้น": ticker,
                 "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
                 "เปอร์เซ็นต์": detail['score_pct'],
                 "ป้ายคะแนน": badge,
-                **dca_result
+                **dca_result,
+                "Dividend Yield (%)": div_yield_pct,
+                "Ex-Dividend Date": ex_div_date,
+                "52W High": w52_high,
+                "52W Low": w52_low,
+                "ราคาปิดล่าสุด": last_close,
+                "ราคาเปิดล่าสุด": last_open,
+                "เงินปันผลย้อนหลัง 1 ปี": round(total_div,2) if not div.empty and not hist.empty else "N/A",
+                "Yield ย้อนหลัง 1 ปี (%)": round(manual_yield,2) if not div.empty and not hist.empty else "N/A"
             })
 
     # --- Export to Excel ---
@@ -437,4 +477,4 @@ if st.button("วิเคราะห์"):
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA พร้อม Export Excel (เมนูไทย)")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA + ปันผลย้อนหลัง พร้อม Export Excel (เมนูไทย)")
