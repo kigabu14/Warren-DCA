@@ -1,5 +1,4 @@
 import streamlit as st
-from pprint import pprint
 from edgar.client import EdgarClient
 from dca.client import DCAClient
 
@@ -9,41 +8,24 @@ dcaClient = DCAClient()
 
 # Setup tickers and period to fetch
 tickers = [
-    'CBOE',
-    'AAPL',
-    'WMT',
-    'F',
-    'HD',
-    'SONY',
-    'KO',
-    'GOOG',
-    'MCD',
-    'MCO',
-    'TSLA',
-    'MSFT',
-    'ZM',
-    'SNAP',
-    'DIS',
-    'NFLX',
-    'GPRO',
-    'BABA',
-    'CCL',
-    'PLTR',
-    'AMD',
-    'NVDA',
-    'SBUX',
-    'COIN', # no financial statements found..?
-    'T',
+    'CBOE', 'AAPL', 'WMT', 'F', 'HD', 'SONY', 'KO', 'GOOG', 'MCD',
+    'MCO', 'TSLA', 'MSFT', 'ZM', 'SNAP', 'DIS', 'NFLX', 'GPRO', 'BABA',
+    'CCL', 'PLTR', 'AMD', 'NVDA', 'SBUX', 'COIN', 'T',
 ]
 period = 'annual'
 
-# Loop through each ticker
-for ticker in tickers:
-    # Fetch financial information
-    financials = edgarClient.financials(ticker, period)
-    
-    # Run parameter using fetched financial information
-    dcaClient.runParameters(financials)
+st.title("Warren-DCA Results")
 
-# Finally write calculated parameters to an excel document
+results = []
+for ticker in tickers:
+    financials = edgarClient.financials(ticker, period)
+    dca_results = dcaClient.runParameters(financials)
+    results.append({"ticker": ticker, "result": dca_results})
+    st.write(f"✅ {ticker} processed.")
+
+# ตัวอย่างการแสดงผลรวมเป็นตาราง (ถ้าผลลัพธ์เหมาะสมกับตาราง)
+st.write("## สรุปผลลัพธ์ทั้งหมด")
+st.write(results)
+
+# สุดท้ายยังคงบันทึกลง Excel
 dcaClient.writeToExcel()
