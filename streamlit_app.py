@@ -28,8 +28,8 @@ def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_price
         summary["1. มีกำไรสุทธิ 4 ปีติด"] = "N/A"
     # 2. D/E < 0.5
     try:
-        liab_row = [i for i in balance_sheet.index if "Total Liab" in i][0]
-        eq_row = [i for i in balance_sheet.index if "Total Stockholder Equity" in i][0]
+        liab_row = [i for i in balance_sheet.index if "totalLiabilities" in i][0]
+        eq_row = [i for i in balance_sheet.index if "shareholderEquity" in i][0]
         total_liab = balance_sheet.loc[liab_row]
         equity = balance_sheet.loc[eq_row]
         debt_equity = (total_liab / equity).mean()
@@ -44,7 +44,7 @@ def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_price
         summary["3. ROE > 15%"] = "N/A"
     # 4. Margin > 10%
     try:
-        rev_row = [i for i in financials.index if "Total Revenue" in i][0]
+        rev_row = [i for i in financials.index if "totalRevenue" in i][0]
         revenue = financials.loc[rev_row]
         margin = (net_income / revenue).mean()
         summary["4. กำไรสุทธิ > 10%"] = margin > 0.10
@@ -52,7 +52,7 @@ def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_price
         summary["4. กำไรสุทธิ > 10%"] = "N/A"
     # 5. กระแสเงินสดดำเนินงานบวก
     try:
-        ocf_row = [i for i in cashflow.index if "Total Cash From Operating Activities" in i][0]
+        ocf_row = [i for i in cashflow.index if "totalInvestingCashFlows" in i][0]
         ocf = cashflow.loc[ocf_row]
         summary["5. กระแสเงินสดดำเนินงานบวก"] = (ocf > 0).all()
     except Exception:
@@ -71,8 +71,8 @@ def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_price
         summary["8. กำไรสุทธิเติบโต"] = "N/A"
     # 9. Current Ratio > 1
     try:
-        ca_row = [i for i in balance_sheet.index if "Total Current Assets" in i][0]
-        cl_row = [i for i in balance_sheet.index if "Total Current Liabilities" in i][0]
+        ca_row = [i for i in balance_sheet.index if "totalAssets" in i][0]
+        cl_row = [i for i in balance_sheet.index if "totalLiabilities" in i][0]
         current_assets = balance_sheet.loc[ca_row]
         current_liab = balance_sheet.loc[cl_row]
         current_ratio = (current_assets / current_liab).mean()
