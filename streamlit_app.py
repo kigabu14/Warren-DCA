@@ -3,109 +3,90 @@ import yfinance as yf
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Warren-DCA: วิเคราะห์หุ้นและ DCA (ครบสูตร)", layout="wide")
-st.title("Warren-DCA: วิเคราะห์หุ้นและ DCA (Buffett 11 ข้อ + DCA + Export Excel)")
+def human_format(num):
+    if pd.isna(num):
+        return ""
+    num = float(num)
+    for unit in ['', 'K', 'M', 'B', 'T']:
+        if abs(num) < 1000.0:
+            return "%3.1f%s" % (num, unit)
+        num /= 1000.0
+    return "%.1fP" % num
 
-# ----------------- SET100 Thailand -----------------
-set100 = [
-    "ADVANC.BK", "AOT.BK", "AP.BK", "AWC.BK", "BAM.BK", "BANPU.BK", "BBL.BK", "BCP.BK", "BDMS.BK", "BEC.BK",
-    "BEM.BK", "BGRIM.BK", "BH.BK", "BJC.BK", "BLA.BK", "BPP.BK", "BTS.BK", "CBG.BK", "CENTEL.BK", "CHG.BK",
-    "CK.BK", "COM7.BK", "CPALL.BK", "CPF.BK", "CPN.BK", "CRC.BK", "DELTA.BK", "DOHOME.BK", "DTAC.BK", "EGCO.BK",
-    "EPG.BK", "ESSO.BK", "GLOBAL.BK", "GPSC.BK", "GULF.BK", "HANA.BK", "HMPRO.BK", "INTUCH.BK", "IRPC.BK",
-    "IVL.BK", "JMART.BK", "JMT.BK", "KBANK.BK", "KCE.BK", "KEX.BK", "KTB.BK", "KTC.BK", "LH.BK", "M.BK",
-    "MINT.BK", "MTC.BK", "OR.BK", "OSP.BK", "PLANB.BK", "PRM.BK", "PTG.BK", "PTT.BK", "PTTEP.BK", "PTTGC.BK",
-    "QH.BK", "RATCH.BK", "RS.BK", "SAWAD.BK", "SCB.BK", "SCC.BK", "SCGP.BK", "SGP.BK", "SIRI.BK", "SPALI.BK",
-    "STA.BK", "STARK.BK", "STEC.BK", "STGT.BK", "STPI.BK", "SUPER.BK", "TASCO.BK", "TCAP.BK", "THANI.BK",
-    "THG.BK", "TISCO.BK", "TKN.BK", "TMB.BK", "TOA.BK", "TOP.BK", "TRUE.BK", "TTB.BK", "TU.BK", "TVO.BK",
-    "VGI.BK", "WHA.BK"
-]
-us_stocks = [
-    "AAPL", "TSLA", "NVDA", "GOOG", "MSFT", "SBUX", "AMD", "BABA", "T", "WMT",
-    "SONY", "KO", "MCD", "MCO", "SNAP", "DIS", "NFLX", "GPRO", "CCL", "PLTR", "CBOE", "HD", "F", "COIN"
-]
-all_tickers = us_stocks + set100
+def df_human_format(df):
+    return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
-# ----------------- Buffett 11 Checklist -----------------
 def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_prices):
     summary = {}
-    # 1. กำไรสุทธิต่อเนื่อง 3-4 ปี
+    # 1. มีกำไรสุทธิต่อเนื่อง
     try:
-        net_income = financials.loc[[i for i in financials.index if "Net Income" in i][0]]
-        summary["1. มีกำไรสุทธิต่อเนื่อง"] = bool((net_income > 0).all())
+        ni_row = [i for i in financials.index if "Net Income" in i or "NetIncome" in i][0]
+        net_income = financials.loc[ni_row]
+        summary["1. มีกำไรสุทธิ 4 ปีติด"] = bool((net_income > 0).all())
     except Exception:
-        summary["1. มีกำไรสุทธิต่อเนื่อง"] = "N/A"
-
-    # 2. หนี้สินรวมน้อย (Debt/Equity < 0.5)
+        summary["1. มีกำไรสุทธิ 4 ปีติด"] = "N/A"
+    # 2. D/E < 0.5
     try:
-        total_liab = balance_sheet.loc[[i for i in balance_sheet.index if "Total Liab" in i][0]]
-        equity = balance_sheet.loc[[i for i in balance_sheet.index if "Total Stockholder Equity" in i][0]]
+        liab_row = [i for i in balance_sheet.index if "Total Liab" in i][0]
+        eq_row = [i for i in balance_sheet.index if "Total Stockholder Equity" in i][0]
+        total_liab = balance_sheet.loc[liab_row]
+        equity = balance_sheet.loc[eq_row]
         debt_equity = (total_liab / equity).mean()
-        summary["2. หนี้สินรวมน้อย (D/E < 0.5)"] = debt_equity < 0.5
+        summary["2. D/E < 0.5"] = debt_equity < 0.5
     except Exception:
-        summary["2. หนี้สินรวมน้อย (D/E < 0.5)"] = "N/A"
-
+        summary["2. D/E < 0.5"] = "N/A"
     # 3. ROE > 15%
     try:
-        net_income = financials.loc[[i for i in financials.index if "Net Income" in i][0]]
-        equity = balance_sheet.loc[[i for i in balance_sheet.index if "Total Stockholder Equity" in i][0]]
         roe = (net_income / equity).mean()
         summary["3. ROE > 15%"] = roe > 0.15
     except Exception:
         summary["3. ROE > 15%"] = "N/A"
-
-    # 4. Net Profit Margin > 10%
+    # 4. Margin > 10%
     try:
-        revenue = financials.loc[[i for i in financials.index if "Total Revenue" in i][0]]
-        net_income = financials.loc[[i for i in financials.index if "Net Income" in i][0]]
+        rev_row = [i for i in financials.index if "Total Revenue" in i][0]
+        revenue = financials.loc[rev_row]
         margin = (net_income / revenue).mean()
-        summary["4. อัตรากำไรสุทธิ > 10%"] = margin > 0.10
+        summary["4. กำไรสุทธิ > 10%"] = margin > 0.10
     except Exception:
-        summary["4. อัตรากำไรสุทธิ > 10%"] = "N/A"
-
-    # 5. กระแสเงินสดดำเนินงานเป็นบวก
+        summary["4. กำไรสุทธิ > 10%"] = "N/A"
+    # 5. กระแสเงินสดดำเนินงานบวก
     try:
-        ocf = cashflow.loc[[i for i in cashflow.index if "Total Cash From Operating Activities" in i][0]]
-        summary["5. กระแสเงินสดดำเนินงานเป็นบวก"] = (ocf > 0).all()
+        ocf_row = [i for i in cashflow.index if "Total Cash From Operating Activities" in i][0]
+        ocf = cashflow.loc[ocf_row]
+        summary["5. กระแสเงินสดดำเนินงานบวก"] = (ocf > 0).all()
     except Exception:
-        summary["5. กระแสเงินสดดำเนินงานเป็นบวก"] = "N/A"
-
-    # 6. ความได้เปรียบทางแข่งขัน (ให้ประเมินเอง)
-    summary["6. มีความได้เปรียบทางแข่งขัน"] = "ประเมินเอง"
-
+        summary["5. กระแสเงินสดดำเนินงานบวก"] = "N/A"
+    # 6. ความได้เปรียบทางแข่งขัน
+    summary["6. ความได้เปรียบทางแข่งขัน"] = "ประเมินเอง"
     # 7. รายได้เติบโต
     try:
-        revenue = financials.loc[[i for i in financials.index if "Total Revenue" in i][0]]
         summary["7. รายได้เติบโต"] = revenue.iloc[0] < revenue.iloc[-1]
     except Exception:
         summary["7. รายได้เติบโต"] = "N/A"
     # 8. กำไรสุทธิเติบโต
     try:
-        net_income = financials.loc[[i for i in financials.index if "Net Income" in i][0]]
         summary["8. กำไรสุทธิเติบโต"] = net_income.iloc[0] < net_income.iloc[-1]
     except Exception:
         summary["8. กำไรสุทธิเติบโต"] = "N/A"
-
-    # 9. Current ratio > 1
+    # 9. Current Ratio > 1
     try:
-        current_assets = balance_sheet.loc[[i for i in balance_sheet.index if "Total Current Assets" in i][0]]
-        current_liab = balance_sheet.loc[[i for i in balance_sheet.index if "Total Current Liabilities" in i][0]]
+        ca_row = [i for i in balance_sheet.index if "Total Current Assets" in i][0]
+        cl_row = [i for i in balance_sheet.index if "Total Current Liabilities" in i][0]
+        current_assets = balance_sheet.loc[ca_row]
+        current_liab = balance_sheet.loc[cl_row]
         current_ratio = (current_assets / current_liab).mean()
         summary["9. Current Ratio > 1"] = current_ratio > 1
     except Exception:
         summary["9. Current Ratio > 1"] = "N/A"
-
-    # 10. Margin of Safety (ประเมินเอง)
-    summary["10. มี Margin of Safety"] = "ประเมินเอง"
-
-    # 11. จ่ายปันผลสม่ำเสมอ
+    # 10. Margin of Safety
+    summary["10. Margin of Safety"] = "ประเมินเอง"
+    # 11. ปันผลสม่ำเสมอ
     try:
         summary["11. ปันผลสม่ำเสมอ"] = len(dividends) > 0 and (dividends > 0).any()
     except Exception:
         summary["11. ปันผลสม่ำเสมอ"] = "N/A"
-
     return summary
 
-# ----------------- DCA Simulation -----------------
 def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
@@ -127,7 +108,45 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
         "ราคาปิดล่าสุด": round(latest_price, 2)
     }
 
-# ----------------- UI -----------------
+set100 = [ ... ] # (ตามเดิม)
+us_stocks = [ ... ] # (ตามเดิม)
+all_tickers = us_stocks + set100
+
+st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+
+if menu == "คู่มือการใช้งาน":
+    st.header("คู่มือการใช้งาน (ภาษาไทย)")
+    st.markdown("""
+**Warren-DCA คืออะไร?**  
+โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการลงทุนแบบถัวเฉลี่ย (DCA)  
+**แหล่งข้อมูล:** Yahoo Finance
+
+### คำอธิบายแต่ละส่วน
+- **Buffett 11 Checklist**:  
+    1. มีกำไรสุทธิ 4 ปีติด (Net Income)
+    2. D/E < 0.5 (Total Liabilities / Total Equity)
+    3. ROE > 15% (Net Income / Equity)
+    4. กำไรสุทธิ > 10% (Net Income / Revenue)
+    5. กระแสเงินสดดำเนินงานบวก (Operating Cash Flow)
+    6. ความได้เปรียบทางแข่งขัน: ต้องประเมินเอง
+    7. รายได้เติบโต (Revenue)
+    8. กำไรสุทธิเติบโต (Net Income)
+    9. Current Ratio > 1 (Current Assets / Current Liabilities)
+    10. Margin of Safety: ประเมินเอง
+    11. ปันผลสม่ำเสมอ (Dividends)
+
+- **DCA Simulation**: จำลองซื้อหุ้นทุกเดือนด้วยเงินเท่ากัน
+- **เลขตัวย่อ**: K = พัน, M = ล้าน, B = พันล้าน, T = ล้านล้าน
+
+### หมายเหตุ
+- ข้อมูลหุ้น US จะครบถ้วนมากกว่าหุ้นไทย
+- ถ้าข้อมูลหลักๆ ไม่ครบ บางข้อจะขึ้นว่า N/A
+- ข้อมูลย้อนหลังงบการเงิน 4 ปี (Annual)  
+""")
+    st.stop()
+
+# หน้า "วิเคราะห์หุ้น"
 tickers = st.multiselect(
     "เลือกหุ้น (US & SET100)",
     all_tickers,
@@ -140,42 +159,37 @@ show_financials = st.checkbox("แสดงงบการเงิน (Income S
 if st.button("วิเคราะห์"):
     export_list = []
     for ticker in tickers:
-        st.header(f"หุ้น: {ticker}")
         stock = yf.Ticker(ticker)
-
         fin = stock.financials
         bs = stock.balance_sheet
         cf = stock.cashflow
         div = stock.dividends
         hist = stock.history(period=period)
 
-        # --- Buffett Score 11 ข้อ ---
-        st.subheader("Buffett 11 Checklist")
-        buffett_checks = buffett_11_checks(fin, bs, cf, div, hist)
-        st.write(pd.DataFrame(buffett_checks, index=['ผลลัพธ์']).T)
+        with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
+            st.subheader("Buffett 11 Checklist")
+            buffett_checks = buffett_11_checks(fin, bs, cf, div, hist)
+            st.write(pd.DataFrame(buffett_checks, index=['ผลลัพธ์']).T)
 
-        # --- DCA Simulation ---
-        st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-        dca_result = dca_simulation(hist, monthly_invest)
-        st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
+            st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
+            dca_result = dca_simulation(hist, monthly_invest)
+            st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
-        # --- Chart ---
-        if not hist.empty:
-            st.line_chart(hist['Close'])
-        else:
-            st.warning("ไม่มีข้อมูลราคาหุ้น")
+            if not hist.empty:
+                st.line_chart(hist['Close'])
+            else:
+                st.warning("ไม่มีข้อมูลราคาหุ้น")
 
-        # --- Financials ---
-        if show_financials and fin is not None and not fin.empty:
-            st.subheader("งบกำไรขาดทุน (Income Statement)")
-            st.dataframe(fin)
+            if show_financials and fin is not None and not fin.empty:
+                st.subheader("งบกำไรขาดทุน (Income Statement)")
+                st.dataframe(df_human_format(fin))
 
-        # สำหรับ export
-        export_list.append({
-            "หุ้น": ticker,
-            **buffett_checks,
-            **dca_result
-        })
+            # export
+            export_list.append({
+                "หุ้น": ticker,
+                **buffett_checks,
+                **dca_result
+            })
 
     # --- Export to Excel ---
     if len(export_list) > 0:
@@ -190,4 +204,4 @@ if st.button("วิเคราะห์"):
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist และ DCA พร้อม Export Excel (เมนูไทย)")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist และ DCA พร้อม Export Excel (เมนูไทย)")
