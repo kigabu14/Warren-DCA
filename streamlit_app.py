@@ -88,7 +88,7 @@ def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_price
         summary["11. ปันผลสม่ำเสมอ"] = "N/A"
     return summary
 
-def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
+def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, dividend_yield: float = None):
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
     prices = hist_prices['Close'].resample('M').first().dropna()
@@ -99,6 +99,12 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
     latest_price = prices.iloc[-1]
     current_value = total_units * latest_price
     profit = current_value - total_invested
+
+    # คำนวณรายได้จากปันผล (ถ้ามี dividend_yield)
+    dividend_income = 0
+    if dividend_yield is not None:
+        dividend_income = total_units * latest_price * dividend_yield
+
     return {
         "เงินลงทุนรวม": round(total_invested, 2),
         "จำนวนหุ้นสะสม": round(total_units, 4),
@@ -106,7 +112,8 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
         "กำไร/ขาดทุน": round(profit, 2),
         "กำไร(%)": round(profit/total_invested*100, 2) if total_invested != 0 else 0,
         "ราคาเฉลี่ยที่ซื้อ": round(avg_buy_price, 2),
-        "ราคาปิดล่าสุด": round(latest_price, 2)
+        "ราคาปิดล่าสุด": round(latest_price, 2),
+        "รายได้จากปันผล (ประมาณการ)": round(dividend_income, 2)
     }
 
 # ----------------- SET100/US STOCKS -----------------
@@ -136,7 +143,7 @@ if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
 **Warren-DCA คืออะไร?**  
-โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการลงทุนแบบถัวเฉลี่ย (DCA)  
+โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการลงทุนแบบ DCA  
 **แหล่งข้อมูล:** Yahoo Finance
 
 ### คำอธิบายแต่ละส่วน
@@ -183,13 +190,29 @@ if st.button("วิเคราะห์"):
         div = stock.dividends
         hist = stock.history(period=period)
 
+        # ข้อมูลเพิ่มเติม
+        forward_dividend_yield = stock.info.get('dividendYield', None)  # Forward Dividend Yield
+        fifty_two_week_high = stock.info.get('fiftyTwoWeekHigh', None)  # 52 Week High
+        fifty_two_week_low = stock.info.get('fiftyTwoWeekLow', None)    # 52 Week Low
+        ex_dividend_date = stock.info.get('exDividendDate', None)       # Ex-Dividend Date
+        earnings_date = stock.info.get('earningsDate', None)            # Earnings Date
+
         with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
             st.subheader("Buffett 11 Checklist")
             buffett_checks = buffett_11_checks(fin, bs, cf, div, hist)
             st.write(pd.DataFrame(buffett_checks, index=['ผลลัพธ์']).T)
 
+            st.subheader("ข้อมูลสำคัญเพิ่มเติม")
+            st.write({
+                "Forward Dividend & Yield": forward_dividend_yield,
+                "52 Week High": fifty_two_week_high,
+                "52 Week Low": fifty_two_week_low,
+                "Ex-Dividend Date": ex_dividend_date,
+                "Earnings Date": earnings_date,
+            })
+
             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest)
+            dca_result = dca_simulation(hist, monthly_invest, dividend_yield=forward_dividend_yield)
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
             if not hist.empty:
@@ -205,7 +228,12 @@ if st.button("วิเคราะห์"):
             export_list.append({
                 "หุ้น": ticker,
                 **buffett_checks,
-                **dca_result
+                **dca_result,
+                "Forward Dividend & Yield": forward_dividend_yield,
+                "52 Week High": fifty_two_week_high,
+                "52 Week Low": fifty_two_week_low,
+                "Ex-Dividend Date": ex_dividend_date,
+                "Earnings Date": earnings_date,
             })
 
     # --- Export to Excel ---
