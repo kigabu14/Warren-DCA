@@ -17,137 +17,276 @@ def human_format(num):
 def df_human_format(df):
     return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
-def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_prices):
-    summary = {}
-    # 1. มีกำไรสุทธิ 4 ปีติด
+# ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
+
+def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
+    """
+    คืน dict: {
+      'details': list ของแต่ละข้อ [{'title':..., 'result':1/0/-1, 'desc':...}],
+      'score': int, 'evaluated': int, 'score_pct': int
+    }
+    """
+    results = []
+    score = 0
+    evaluated = 0
+
+    # 1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง
     try:
-        if financials is not None and not financials.empty:
-            ni_row = [i for i in financials.index if "Net Income" in i or "NetIncome" in i]
-            if ni_row:
-                net_income = financials.loc[ni_row[0]]
-                summary["1. มีกำไรสุทธิ 4 ปีติด"] = bool((net_income > 0).all())
-            else:
-                summary["1. มีกำไรสุทธิ 4 ปีติด"] = "ข้อมูลไม่ครบ"
-        else:
-            summary["1. มีกำไรสุทธิ 4 ปีติด"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["1. มีกำไรสุทธิ 4 ปีติด"] = f"Error: {e}"
+        inv = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Inventor",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                inv.append(v.iloc[0])
+        inv_growth = all([inv[i] < inv[i+1] for i in range(len(inv)-1)]) if len(inv)>=2 else True
+        ni = []
+        for col in financials.columns:
+            v = financials.loc[financials.index.str.contains("Net Income",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ni.append(v.iloc[0])
+        ni_growth = all([ni[i] < ni[i+1] for i in range(len(ni)-1)]) if len(ni)>=2 else True
+        res = 1 if inv_growth and ni_growth else 0
+    except:
+        res = -1
+    results.append({'title':'1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง','result':res,'desc':'Inventory และ Net Income ต้องโตต่อเนื่อง'})
+    if res != -1: score += res; evaluated += 1
 
-    # 2. D/E < 0.5
+    # 1.2 ไม่มี R&D
     try:
-        if balance_sheet is not None and not balance_sheet.empty:
-            liab_row = [i for i in balance_sheet.index if "totalLiabilities" in i]
-            eq_row = [i for i in balance_sheet.index if "shareholderEquity" in i]
-            if liab_row and eq_row:
-                total_liab = balance_sheet.loc[liab_row[0]]
-                equity = balance_sheet.loc[eq_row[0]]
-                if (equity > 0).all():
-                    debt_equity = (total_liab / equity).mean()
-                    summary["2. D/E < 0.5"] = debt_equity < 0.5
-                else:
-                    summary["2. D/E < 0.5"] = "Equity เป็นศูนย์"
-            else:
-                summary["2. D/E < 0.5"] = "ข้อมูลไม่ครบ"
-        else:
-            summary["2. D/E < 0.5"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["2. D/E < 0.5"] = f"Error: {e}"
+        r_and_d = any(financials.index.str.contains('Research',case=False))
+        res = 0 if r_and_d else 1
+    except:
+        res = -1
+    results.append({'title':'1.2 ไม่มี Research & Development','result':res,'desc':'ไม่มีค่าใช้จ่าย R&D'})
+    if res != -1: score += res; evaluated += 1
 
-    # 3. ROE > 15%
+    # 2. EBITDA > Current Liabilities ทุกปี
     try:
-        if balance_sheet is not None and not balance_sheet.empty:
-            if (equity > 0).all():
-                roe = (net_income / equity).mean()
-                summary["3. ROE > 15%"] = roe > 0.15
-            else:
-                summary["3. ROE > 15%"] = "Equity เป็นศูนย์"
-        else:
-            summary["3. ROE > 15%"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["3. ROE > 15%"] = f"Error: {e}"
+        ebitda = []
+        cl = []
+        for col in financials.columns:
+            v = financials.loc[financials.index.str.contains("EBITDA",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ebitda.append(v.iloc[0])
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Current Liab",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                cl.append(v.iloc[0])
+        res = 1 if all([ebitda[i] > cl[i] for i in range(min(len(ebitda),len(cl)))]) and len(ebitda)>0 else 0
+    except:
+        res = -1
+    results.append({'title':'2. EBITDA > Current Liabilities ทุกปี','result':res,'desc':'EBITDA มากกว่าหนี้สินหมุนเวียนทุกปี'})
+    if res != -1: score += res; evaluated += 1
 
-    # 4. Margin > 10%
+    # 3. PPE เพิ่มขึ้น (ไม่มี spike)
     try:
-        rev_row = [i for i in financials.index if "totalRevenue" in i]
-        if rev_row:
-            revenue = financials.loc[rev_row[0]]
-            margin = (net_income / revenue).mean()
-            summary["4. กำไรสุทธิ > 10%"] = margin > 0.10
+        ppe = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Property, Plant",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ppe.append(v.iloc[0])
+        if len(ppe) >= 2:
+            growth = all([ppe[i] <= ppe[i+1] for i in range(len(ppe)-1)])
+            spike = max([abs(ppe[i+1]-ppe[i])/ppe[i] if ppe[i]!=0 else 0 for i in range(len(ppe)-1)]) < 1.0
+            res = 1 if growth and spike else 0
         else:
-            summary["4. กำไรสุทธิ > 10%"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["4. กำไรสุทธิ > 10%"] = f"Error: {e}"
+            res = -1
+    except:
+        res = -1
+    results.append({'title':'3. PPE เพิ่มขึ้น (ไม่มี spike)','result':res,'desc':'Property, Plant & Equipment โตต่อเนื่อง'})
+    if res != -1: score += res; evaluated += 1
 
-    # 5. กระแสเงินสดดำเนินงานบวก
+    # 4.1 RTA ≥ 11%
     try:
-        if cashflow is not None and not cashflow.empty:
-            ocf_row = [i for i in cashflow.index if "totalInvestingCashFlows" in i]
-            if ocf_row:
-                ocf = cashflow.loc[ocf_row[0]]
-                summary["5. กระแสเงินสดดำเนินงานบวก"] = (ocf > 0).all()
-            else:
-                summary["5. กระแสเงินสดดำเนินงานบวก"] = "ข้อมูลไม่ครบ"
-        else:
-            summary["5. กระแสเงินสดดำเนินงานบวก"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["5. กระแสเงินสดดำเนินงานบวก"] = f"Error: {e}"
+        ebitda = []
+        ta = []
+        for col in financials.columns:
+            v = financials.loc[financials.index.str.contains("EBITDA",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ebitda.append(v.iloc[0])
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Total Assets",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ta.append(v.iloc[0])
+        rtas = [ebitda[i]/ta[i] for i in range(min(len(ebitda),len(ta))) if ta[i]!=0]
+        avg_rta = sum(rtas)/len(rtas) if rtas else 0
+        res = 1 if avg_rta >= 0.11 else 0
+    except:
+        res = -1
+    results.append({'title':'4.1 RTA ≥ 11%','result':res,'desc':'Return on Total Assets เฉลี่ย ≥ 11%'})
+    if res != -1: score += res; evaluated += 1
 
-    # 6. ความได้เปรียบทางแข่งขัน
-    summary["6. ความได้เปรียบทางแข่งขัน"] = "ประเมินเอง"
-
-    # 7. รายได้เติบโต
+    # 4.2 RTA ≥ 17%
     try:
-        if "revenue" in locals() and len(revenue) > 1:
-            summary["7. รายได้เติบโต"] = revenue.iloc[0] < revenue.iloc[-1]
-        else:
-            summary["7. รายได้เติบโต"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["7. รายได้เติบโต"] = f"Error: {e}"
+        res = 1 if avg_rta >= 0.17 else 0
+    except:
+        res = -1
+    results.append({'title':'4.2 RTA ≥ 17%','result':res,'desc':'Return on Total Assets เฉลี่ย ≥ 17%'})
+    if res != -1: score += res; evaluated += 1
 
-    # 8. กำไรสุทธิเติบโต
+    # 5.1 LTD/Total Assets ≤ 0.5
     try:
-        if "net_income" in locals() and len(net_income) > 1:
-            summary["8. กำไรสุทธิเติบโต"] = net_income.iloc[0] < net_income.iloc[-1]
-        else:
-            summary["8. กำไรสุทธิเติบโต"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["8. กำไรสุทธิเติบโต"] = f"Error: {e}"
+        ltd = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Long Term Debt",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ltd.append(v.iloc[0])
+        ratios = [ltd[i]/ta[i] for i in range(min(len(ltd),len(ta))) if ta[i]!=0]
+        avg_ratio = sum(ratios)/len(ratios) if ratios else 1
+        res = 1 if avg_ratio <= 0.5 else 0
+    except:
+        res = -1
+    results.append({'title':'5.1 LTD/Total Assets ≤ 0.5','result':res,'desc':'อัตราส่วนหนี้สินระยะยาว ≤ 0.5'})
+    if res != -1: score += res; evaluated += 1
 
-    # 9. Current Ratio > 1
+    # 5.2 EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี
     try:
-        if balance_sheet is not None and not balance_sheet.empty:
-            ca_row = [i for i in balance_sheet.index if "totalAssets" in i]
-            cl_row = [i for i in balance_sheet.index if "totalLiabilities" in i]
-            if ca_row and cl_row:
-                current_assets = balance_sheet.loc[ca_row[0]]
-                current_liab = balance_sheet.loc[cl_row[0]]
-                if (current_liab > 0).all():
-                    current_ratio = (current_assets / current_liab).mean()
-                    summary["9. Current Ratio > 1"] = current_ratio > 1
-                else:
-                    summary["9. Current Ratio > 1"] = "Liabilities เป็นศูนย์"
-            else:
-                summary["9. Current Ratio > 1"] = "ข้อมูลไม่ครบ"
+        last_ebitda = ebitda[-1] if ebitda else None
+        last_ltd = ltd[-1] if ltd else None
+        if last_ebitda and last_ltd and last_ebitda>0:
+            res = 1 if last_ltd/last_ebitda <= 4 else 0
         else:
-            summary["9. Current Ratio > 1"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["9. Current Ratio > 1"] = f"Error: {e}"
+            res = -1
+    except:
+        res = -1
+    results.append({'title':'5.2 EBITDA จ่ายหนี้ LTD หมดใน ≤ 4 ปี','result':res,'desc':'EBITDA ล่าสุดชำระหนี้ LTD หมดใน ≤ 4 ปี'})
+    if res != -1: score += res; evaluated += 1
 
-    # 10. Margin of Safety
-    summary["10. Margin of Safety"] = "ประเมินเอง"
-
-    # 11. ปันผลสม่ำเสมอ
+    # 6.1 มีปีไหน Equity ติดลบหรือไม่
     try:
-        if dividends is not None and len(dividends) > 0:
-            summary["11. ปันผลสม่ำเสมอ"] = (dividends > 0).any()
+        se = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Total Stock",case=False) & balance_sheet.index.str.contains("Equity",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                se.append(v.iloc[0])
+        neg_se = any([x < 0 for x in se])
+        res = 1 if neg_se else 0
+    except:
+        res = -1
+    results.append({'title':'6.1 Equity ติดลบในปีใดหรือไม่','result':res,'desc':'ถ้าติดลบ ข้าม 6.2-6.3'})
+    if res != -1: evaluated += 1  # ไม่บวกคะแนน
+
+    # 6.2 DSER ≤ 1.0
+    try:
+        if not neg_se:
+            tl = []
+            ts = []
+            for col in balance_sheet.columns:
+                v = balance_sheet.loc[balance_sheet.index.str.contains("Total Liab",case=False), col]
+                if not v.empty and v.iloc[0] is not None:
+                    tl.append(v.iloc[0])
+                v = balance_sheet.loc[balance_sheet.index.str.contains("Treasury Stock",case=False), col]
+                if not v.empty and v.iloc[0] is not None:
+                    ts.append(abs(v.iloc[0]))
+            adj_se = [se[i]+(ts[i] if i<len(ts) else 0) for i in range(min(len(se),len(ts)))] if ts else se
+            dser = [tl[i]/adj_se[i] for i in range(min(len(tl),len(adj_se))) if adj_se[i]!=0]
+            avg_dser = sum(dser)/len(dser) if dser else 0
+            res = 1 if avg_dser <= 1.0 else 0
         else:
-            summary["11. ปันผลสม่ำเสมอ"] = "ข้อมูลไม่ครบ"
-    except Exception as e:
-        summary["11. ปันผลสม่ำเสมอ"] = f"Error: {e}"
+            res = -1
+    except:
+        res = -1
+    results.append({'title':'6.2 DSER ≤ 1.0','result':res,'desc':'Debt to Shareholder Equity Ratio ≤ 1.0'})
+    if res != -1: score += res; evaluated += 1
 
-    return summary
+    # 6.3 DSER ≤ 0.8
+    try:
+        res = 1 if not neg_se and avg_dser <= 0.8 else ( -1 if neg_se else 0)
+    except:
+        res = -1
+    results.append({'title':'6.3 DSER ≤ 0.8','result':res,'desc':'Debt to Shareholder Equity Ratio ≤ 0.8'})
+    if res != -1: score += res; evaluated += 1
 
-def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, dividend_yield: float = None):
+    # 7. ไม่มี Preferred Stock
+    try:
+        pref = any(balance_sheet.index.str.contains('Preferred',case=False))
+        res = 0 if pref else 1
+    except:
+        res = -1
+    results.append({'title':'7. ไม่มี Preferred Stock','result':res,'desc':'ไม่มีหุ้นบุริมสิทธิ'})
+    if res != -1: score += res; evaluated += 1
+
+    # 8.1 Retained Earnings เติบโต ≥ 7%
+    try:
+        re = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Retained Earnings",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                re.append(v.iloc[0])
+        re_growths = [(re[i+1]-re[i])/re[i] if re[i]!=0 else 0 for i in range(len(re)-1)]
+        avg_re_growth = sum(re_growths)/len(re_growths) if re_growths else 0
+        res = 1 if avg_re_growth >= 0.07 else 0
+    except:
+        res = -1
+    results.append({'title':'8.1 Retained Earnings เติบโต ≥ 7%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 7%'})
+    if res != -1: score += res; evaluated += 1
+
+    # 8.2 ≥ 13.5%
+    try:
+        res = 1 if avg_re_growth >= 0.135 else 0
+    except:
+        res = -1
+    results.append({'title':'8.2 Retained Earnings เติบโต ≥ 13.5%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 13.5%'})
+    if res != -1: score += res; evaluated += 1
+
+    # 8.3 ≥ 17%
+    try:
+        res = 1 if avg_re_growth >= 0.17 else 0
+    except:
+        res = -1
+    results.append({'title':'8.3 Retained Earnings เติบโต ≥ 17%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 17%'})
+    if res != -1: score += res; evaluated += 1
+
+    # 9. มี Treasury Stock
+    try:
+        ts = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Treasury Stock",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                ts.append(v.iloc[0])
+        res = 1 if any([x!=0 for x in ts]) else 0
+    except:
+        res = -1
+    results.append({'title':'9. มี Treasury Stock','result':res,'desc':'มี Treasury Stock หรือไม่'})
+    if res != -1: score += res; evaluated += 1
+
+    # 10. ROE ≥ 23%
+    try:
+        roe = [ebitda[i]/se[i] for i in range(min(len(ebitda),len(se))) if se[i]!=0]
+        avg_roe = sum(roe)/len(roe) if roe else 0
+        res = 1 if avg_roe >= 0.23 else 0
+    except:
+        res = -1
+    results.append({'title':'10. ROE ≥ 23%','result':res,'desc':'Return on Shareholders Equity เฉลี่ย ≥ 23%'})
+    if res != -1: score += res; evaluated += 1
+
+    # 11. Goodwill เพิ่มขึ้น
+    try:
+        gw = []
+        for col in balance_sheet.columns:
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Goodwill",case=False), col]
+            if not v.empty and v.iloc[0] is not None:
+                gw.append(v.iloc[0])
+        res = 1 if all([gw[i] <= gw[i+1] for i in range(len(gw)-1)]) and len(gw)>=2 else 0
+    except:
+        res = -1
+    results.append({'title':'11. Goodwill เพิ่มขึ้น','result':res,'desc':'Goodwill โตต่อเนื่อง'})
+    if res != -1: score += res; evaluated += 1
+
+    score_pct = int(score / evaluated * 100) if evaluated > 0 else 0
+    return {'details': results, 'score': score, 'evaluated': evaluated, 'score_pct': score_pct}
+
+# Badge function
+def get_badge(score_pct):
+    if score_pct >= 80:
+        return "🟢 ดีเยี่ยม (Excellent)"
+    elif score_pct >= 60:
+        return "🟩 ดี (Good)"
+    elif score_pct >= 40:
+        return "🟨 ปานกลาง (Average)"
+    else:
+        return "🟥 ควรระวัง (Poor)"
+
+def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
     prices = hist_prices['Close'].resample('M').first().dropna()
@@ -158,12 +297,6 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, divi
     latest_price = prices.iloc[-1]
     current_value = total_units * latest_price
     profit = current_value - total_invested
-
-    # คำนวณรายได้จากปันผล (ถ้ามี dividend_yield)
-    dividend_income = 0
-    if dividend_yield is not None:
-        dividend_income = total_units * latest_price * dividend_yield
-
     return {
         "เงินลงทุนรวม": round(total_invested, 2),
         "จำนวนหุ้นสะสม": round(total_units, 4),
@@ -171,8 +304,7 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, divi
         "กำไร/ขาดทุน": round(profit, 2),
         "กำไร(%)": round(profit/total_invested*100, 2) if total_invested != 0 else 0,
         "ราคาเฉลี่ยที่ซื้อ": round(avg_buy_price, 2),
-        "ราคาปิดล่าสุด": round(latest_price, 2),
-        "รายได้จากปันผล (ประมาณการ)": round(dividend_income, 2)
+        "ราคาปิดล่าสุด": round(latest_price, 2)
     }
 
 # ----------------- SET100/US STOCKS -----------------
@@ -202,25 +334,28 @@ if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
 **Warren-DCA คืออะไร?**  
-โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการลงทุนแบบ DCA  
+โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการลงทุนแบบถัวเฉลี่ย (DCA)  
 **แหล่งข้อมูล:** Yahoo Finance
 
-### คำอธิบายแต่ละส่วน
-- **Buffett 11 Checklist**:  
-    1. มีกำไรสุทธิ 4 ปีติด (Net Income)
-    2. D/E < 0.5 (Total Liabilities / Total Equity)
-    3. ROE > 15% (Net Income / Equity)
-    4. กำไรสุทธิ > 10% (Net Income / Revenue)
-    5. กระแสเงินสดดำเนินงานบวก (Operating Cash Flow)
-    6. ความได้เปรียบทางแข่งขัน: ต้องประเมินเอง
-    7. รายได้เติบโต (Revenue)
-    8. กำไรสุทธิเติบโต (Net Income)
-    9. Current Ratio > 1 (Current Assets / Current Liabilities)
-    10. Margin of Safety: ประเมินเอง
-    11. ปันผลสม่ำเสมอ (Dividends)
-
-- **DCA Simulation**: จำลองซื้อหุ้นทุกเดือนด้วยเงินเท่ากัน
-- **เลขตัวย่อ**: K = พัน, M = ล้าน, B = พันล้าน, T = ล้านล้าน
+### กฎ 11 ข้อ (DCA Checklist แบบละเอียด)
+1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง
+2. ไม่มี R&D
+3. EBITDA > Current Liabilities ทุกปี
+4. PPE เพิ่มขึ้น (ไม่มี spike)
+5. RTA ≥ 11%
+6. RTA ≥ 17%
+7. LTD/Total Assets ≤ 0.5
+8. EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี
+9. Equity ติดลบในปีใดหรือไม่
+10. DSER ≤ 1.0
+11. DSER ≤ 0.8
+12. ไม่มี Preferred Stock
+13. Retained Earnings เติบโต ≥ 7%
+14. Retained Earnings เติบโต ≥ 13.5%
+15. Retained Earnings เติบโต ≥ 17%
+16. มี Treasury Stock
+17. ROE ≥ 23%
+18. Goodwill เพิ่มขึ้น
 
 ### หมายเหตุ
 - ข้อมูลหุ้น US จะครบถ้วนมากกว่าหุ้นไทย
@@ -249,29 +384,26 @@ if st.button("วิเคราะห์"):
         div = stock.dividends
         hist = stock.history(period=period)
 
-        # ข้อมูลเพิ่มเติม
-        forward_dividend_yield = stock.info.get('dividendYield', None)  # Forward Dividend Yield
-        fifty_two_week_high = stock.info.get('fiftyTwoWeekHigh', None)  # 52 Week High
-        fifty_two_week_low = stock.info.get('fiftyTwoWeekLow', None)    # 52 Week Low
-        ex_dividend_date = stock.info.get('exDividendDate', None)       # Ex-Dividend Date
-        earnings_date = stock.info.get('earningsDate', None)            # Earnings Date
-
         with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
-            st.subheader("Buffett 11 Checklist")
-            buffett_checks = buffett_11_checks(fin, bs, cf, div, hist)
-            st.write(pd.DataFrame(buffett_checks, index=['ผลลัพธ์']).T)
+            st.subheader("Buffett 11 Checklist (แบบละเอียด)")
+            detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
+            badge = get_badge(detail['score_pct'])
+            st.markdown(f"**คะแนนภาพรวม:** {detail['score']} / {detail['evaluated']} ({detail['score_pct']}%) &nbsp;&nbsp;|&nbsp;&nbsp;**ป้ายคะแนน:** {badge}")
 
-            st.subheader("ข้อมูลสำคัญเพิ่มเติม")
-            st.write({
-                "Forward Dividend & Yield": forward_dividend_yield,
-                "52 Week High": fifty_two_week_high,
-                "52 Week Low": fifty_two_week_low,
-                "Ex-Dividend Date": ex_dividend_date,
-                "Earnings Date": earnings_date,
-            })
+            # ตารางรายละเอียดแต่ละข้อ
+            df_detail = pd.DataFrame([
+                {
+                    'ข้อ': i+1,
+                    'รายการ': d['title'],
+                    'ผลลัพธ์': "✅ ผ่าน" if d['result']==1 else ("❌ ไม่ผ่าน" if d['result']==0 else "⚪ N/A"),
+                    'คำอธิบาย': d['desc']
+                }
+                for i,d in enumerate(detail['details'])
+            ])
+            st.dataframe(df_detail, hide_index=True)
 
             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest, dividend_yield=forward_dividend_yield)
+            dca_result = dca_simulation(hist, monthly_invest)
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
             if not hist.empty:
@@ -286,13 +418,10 @@ if st.button("วิเคราะห์"):
             # export
             export_list.append({
                 "หุ้น": ticker,
-                **buffett_checks,
-                **dca_result,
-                "Forward Dividend & Yield": forward_dividend_yield,
-                "52 Week High": fifty_two_week_high,
-                "52 Week Low": fifty_two_week_low,
-                "Ex-Dividend Date": ex_dividend_date,
-                "Earnings Date": earnings_date,
+                "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
+                "เปอร์เซ็นต์": detail['score_pct'],
+                "ป้ายคะแนน": badge,
+                **dca_result
             })
 
     # --- Export to Excel ---
@@ -308,4 +437,4 @@ if st.button("วิเคราะห์"):
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist และ DCA พร้อม Export Excel (เมนูไทย)")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA พร้อม Export Excel (เมนูไทย)")
