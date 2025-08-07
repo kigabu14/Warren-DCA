@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import io
 
+# ----------------- Helper Functions -----------------
 def human_format(num):
     if pd.isna(num):
         return ""
@@ -18,7 +19,7 @@ def df_human_format(df):
 
 def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_prices):
     summary = {}
-    # 1. มีกำไรสุทธิต่อเนื่อง
+    # 1. มีกำไรสุทธิ 4 ปีติด
     try:
         ni_row = [i for i in financials.index if "Net Income" in i or "NetIncome" in i][0]
         net_income = financials.loc[ni_row]
@@ -108,10 +109,26 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
         "ราคาปิดล่าสุด": round(latest_price, 2)
     }
 
-set100 = [ ... ] # (ตามเดิม)
-us_stocks = [ ... ] # (ตามเดิม)
+# ----------------- SET100/US STOCKS -----------------
+set100 = [
+    "ADVANC.BK", "AOT.BK", "AP.BK", "AWC.BK", "BAM.BK", "BANPU.BK", "BBL.BK", "BCP.BK", "BDMS.BK", "BEC.BK",
+    "BEM.BK", "BGRIM.BK", "BH.BK", "BJC.BK", "BLA.BK", "BPP.BK", "BTS.BK", "CBG.BK", "CENTEL.BK", "CHG.BK",
+    "CK.BK", "COM7.BK", "CPALL.BK", "CPF.BK", "CPN.BK", "CRC.BK", "DELTA.BK", "DOHOME.BK", "DTAC.BK", "EGCO.BK",
+    "EPG.BK", "ESSO.BK", "GLOBAL.BK", "GPSC.BK", "GULF.BK", "HANA.BK", "HMPRO.BK", "INTUCH.BK", "IRPC.BK",
+    "IVL.BK", "JMART.BK", "JMT.BK", "KBANK.BK", "KCE.BK", "KEX.BK", "KTB.BK", "KTC.BK", "LH.BK", "M.BK",
+    "MINT.BK", "MTC.BK", "OR.BK", "OSP.BK", "PLANB.BK", "PRM.BK", "PTG.BK", "PTT.BK", "PTTEP.BK", "PTTGC.BK",
+    "QH.BK", "RATCH.BK", "RS.BK", "SAWAD.BK", "SCB.BK", "SCC.BK", "SCGP.BK", "SGP.BK", "SIRI.BK", "SPALI.BK",
+    "STA.BK", "STARK.BK", "STEC.BK", "STGT.BK", "STPI.BK", "SUPER.BK", "TASCO.BK", "TCAP.BK", "THANI.BK",
+    "THG.BK", "TISCO.BK", "TKN.BK", "TMB.BK", "TOA.BK", "TOP.BK", "TRUE.BK", "TTB.BK", "TU.BK", "TVO.BK",
+    "VGI.BK", "WHA.BK"
+]
+us_stocks = [
+    "AAPL", "TSLA", "NVDA", "GOOG", "MSFT", "SBUX", "AMD", "BABA", "T", "WMT",
+    "SONY", "KO", "MCD", "MCO", "SNAP", "DIS", "NFLX", "GPRO", "CCL", "PLTR", "CBOE", "HD", "F", "COIN"
+]
 all_tickers = us_stocks + set100
 
+# ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
 menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
 
