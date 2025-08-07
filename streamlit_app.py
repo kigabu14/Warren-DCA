@@ -21,71 +21,130 @@ def buffett_11_checks(financials, balance_sheet, cashflow, dividends, hist_price
     summary = {}
     # 1. มีกำไรสุทธิ 4 ปีติด
     try:
-        ni_row = [i for i in financials.index if "Net Income" in i or "NetIncome" in i][0]
-        net_income = financials.loc[ni_row]
-        summary["1. มีกำไรสุทธิ 4 ปีติด"] = bool((net_income > 0).all())
-    except Exception:
-        summary["1. มีกำไรสุทธิ 4 ปีติด"] = "N/A"
+        if financials is not None and not financials.empty:
+            ni_row = [i for i in financials.index if "Net Income" in i or "NetIncome" in i]
+            if ni_row:
+                net_income = financials.loc[ni_row[0]]
+                summary["1. มีกำไรสุทธิ 4 ปีติด"] = bool((net_income > 0).all())
+            else:
+                summary["1. มีกำไรสุทธิ 4 ปีติด"] = "ข้อมูลไม่ครบ"
+        else:
+            summary["1. มีกำไรสุทธิ 4 ปีติด"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["1. มีกำไรสุทธิ 4 ปีติด"] = f"Error: {e}"
+
     # 2. D/E < 0.5
     try:
-        liab_row = [i for i in balance_sheet.index if "totalLiabilities" in i][0]
-        eq_row = [i for i in balance_sheet.index if "shareholderEquity" in i][0]
-        total_liab = balance_sheet.loc[liab_row]
-        equity = balance_sheet.loc[eq_row]
-        debt_equity = (total_liab / equity).mean()
-        summary["2. D/E < 0.5"] = debt_equity < 0.5
-    except Exception:
-        summary["2. D/E < 0.5"] = "N/A"
+        if balance_sheet is not None and not balance_sheet.empty:
+            liab_row = [i for i in balance_sheet.index if "totalLiabilities" in i]
+            eq_row = [i for i in balance_sheet.index if "shareholderEquity" in i]
+            if liab_row and eq_row:
+                total_liab = balance_sheet.loc[liab_row[0]]
+                equity = balance_sheet.loc[eq_row[0]]
+                if (equity > 0).all():
+                    debt_equity = (total_liab / equity).mean()
+                    summary["2. D/E < 0.5"] = debt_equity < 0.5
+                else:
+                    summary["2. D/E < 0.5"] = "Equity เป็นศูนย์"
+            else:
+                summary["2. D/E < 0.5"] = "ข้อมูลไม่ครบ"
+        else:
+            summary["2. D/E < 0.5"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["2. D/E < 0.5"] = f"Error: {e}"
+
     # 3. ROE > 15%
     try:
-        roe = (net_income / equity).mean()
-        summary["3. ROE > 15%"] = roe > 0.15
-    except Exception:
-        summary["3. ROE > 15%"] = "N/A"
+        if balance_sheet is not None and not balance_sheet.empty:
+            if (equity > 0).all():
+                roe = (net_income / equity).mean()
+                summary["3. ROE > 15%"] = roe > 0.15
+            else:
+                summary["3. ROE > 15%"] = "Equity เป็นศูนย์"
+        else:
+            summary["3. ROE > 15%"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["3. ROE > 15%"] = f"Error: {e}"
+
     # 4. Margin > 10%
     try:
-        rev_row = [i for i in financials.index if "totalRevenue" in i][0]
-        revenue = financials.loc[rev_row]
-        margin = (net_income / revenue).mean()
-        summary["4. กำไรสุทธิ > 10%"] = margin > 0.10
-    except Exception:
-        summary["4. กำไรสุทธิ > 10%"] = "N/A"
+        rev_row = [i for i in financials.index if "totalRevenue" in i]
+        if rev_row:
+            revenue = financials.loc[rev_row[0]]
+            margin = (net_income / revenue).mean()
+            summary["4. กำไรสุทธิ > 10%"] = margin > 0.10
+        else:
+            summary["4. กำไรสุทธิ > 10%"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["4. กำไรสุทธิ > 10%"] = f"Error: {e}"
+
     # 5. กระแสเงินสดดำเนินงานบวก
     try:
-        ocf_row = [i for i in cashflow.index if "totalInvestingCashFlows" in i][0]
-        ocf = cashflow.loc[ocf_row]
-        summary["5. กระแสเงินสดดำเนินงานบวก"] = (ocf > 0).all()
-    except Exception:
-        summary["5. กระแสเงินสดดำเนินงานบวก"] = "N/A"
+        if cashflow is not None and not cashflow.empty:
+            ocf_row = [i for i in cashflow.index if "totalInvestingCashFlows" in i]
+            if ocf_row:
+                ocf = cashflow.loc[ocf_row[0]]
+                summary["5. กระแสเงินสดดำเนินงานบวก"] = (ocf > 0).all()
+            else:
+                summary["5. กระแสเงินสดดำเนินงานบวก"] = "ข้อมูลไม่ครบ"
+        else:
+            summary["5. กระแสเงินสดดำเนินงานบวก"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["5. กระแสเงินสดดำเนินงานบวก"] = f"Error: {e}"
+
     # 6. ความได้เปรียบทางแข่งขัน
     summary["6. ความได้เปรียบทางแข่งขัน"] = "ประเมินเอง"
+
     # 7. รายได้เติบโต
     try:
-        summary["7. รายได้เติบโต"] = revenue.iloc[0] < revenue.iloc[-1]
-    except Exception:
-        summary["7. รายได้เติบโต"] = "N/A"
+        if "revenue" in locals() and len(revenue) > 1:
+            summary["7. รายได้เติบโต"] = revenue.iloc[0] < revenue.iloc[-1]
+        else:
+            summary["7. รายได้เติบโต"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["7. รายได้เติบโต"] = f"Error: {e}"
+
     # 8. กำไรสุทธิเติบโต
     try:
-        summary["8. กำไรสุทธิเติบโต"] = net_income.iloc[0] < net_income.iloc[-1]
-    except Exception:
-        summary["8. กำไรสุทธิเติบโต"] = "N/A"
+        if "net_income" in locals() and len(net_income) > 1:
+            summary["8. กำไรสุทธิเติบโต"] = net_income.iloc[0] < net_income.iloc[-1]
+        else:
+            summary["8. กำไรสุทธิเติบโต"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["8. กำไรสุทธิเติบโต"] = f"Error: {e}"
+
     # 9. Current Ratio > 1
     try:
-        ca_row = [i for i in balance_sheet.index if "totalAssets" in i][0]
-        cl_row = [i for i in balance_sheet.index if "totalLiabilities" in i][0]
-        current_assets = balance_sheet.loc[ca_row]
-        current_liab = balance_sheet.loc[cl_row]
-        current_ratio = (current_assets / current_liab).mean()
-        summary["9. Current Ratio > 1"] = current_ratio > 1
-    except Exception:
-        summary["9. Current Ratio > 1"] = "N/A"
+        if balance_sheet is not None and not balance_sheet.empty:
+            ca_row = [i for i in balance_sheet.index if "totalAssets" in i]
+            cl_row = [i for i in balance_sheet.index if "totalLiabilities" in i]
+            if ca_row and cl_row:
+                current_assets = balance_sheet.loc[ca_row[0]]
+                current_liab = balance_sheet.loc[cl_row[0]]
+                if (current_liab > 0).all():
+                    current_ratio = (current_assets / current_liab).mean()
+                    summary["9. Current Ratio > 1"] = current_ratio > 1
+                else:
+                    summary["9. Current Ratio > 1"] = "Liabilities เป็นศูนย์"
+            else:
+                summary["9. Current Ratio > 1"] = "ข้อมูลไม่ครบ"
+        else:
+            summary["9. Current Ratio > 1"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["9. Current Ratio > 1"] = f"Error: {e}"
+
     # 10. Margin of Safety
     summary["10. Margin of Safety"] = "ประเมินเอง"
+
     # 11. ปันผลสม่ำเสมอ
     try:
-        summary["11. ปันผลสม่ำเสมอ"] = len(dividends) > 0 and (dividends > 0).any()
-    except Exception:
-        summary["11. ปันผลสม่ำเสมอ"] = "N/A"
+        if dividends is not None and len(dividends) > 0:
+            summary["11. ปันผลสม่ำเสมอ"] = (dividends > 0).any()
+        else:
+            summary["11. ปันผลสม่ำเสมอ"] = "ข้อมูลไม่ครบ"
+    except Exception as e:
+        summary["11. ปันผลสม่ำเสมอ"] = f"Error: {e}"
+
     return summary
 
 def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, dividend_yield: float = None):
