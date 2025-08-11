@@ -5,8 +5,261 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Dict, List, Tuple, Optional
 
-# ----------------- Helper Functions -----------------
+# ----------------- Bollinger Bands Strategy Functions -----------------
+def calculate_bollinger_bands(prices: pd.Series, period: int = 20, multiplier: float = 2) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """
+    Calculate Bollinger Bands for given price series.
+    
+    Args:
+        prices: Price series (typically Close prices)
+        period: Moving average period (default: 20)
+        multiplier: Standard deviation multiplier (default: 2)
+    
+    Returns:
+        Tuple of (upper_band, middle_band, lower_band)
+    """
+    if len(prices) < period:
+        raise ValueError(f"Insufficient data: need at least {period} data points, got {len(prices)}")
+    
+    # Calculate moving average (middle band)
+    middle_band = prices.rolling(window=period).mean()
+    
+    # Calculate standard deviation
+    std = prices.rolling(window=period).std()
+    
+    # Calculate upper and lower bands
+    upper_band = middle_band + (multiplier * std)
+    lower_band = middle_band - (multiplier * std)
+    
+    return upper_band, middle_band, lower_band
+
+def bollinger_bands_strategy(
+    hist_data: pd.DataFrame, 
+    period: int = 20, 
+    multiplier: float = 2,
+    initial_capital: float = 10000,
+    stop_loss_pct: float = 5.0,
+    take_profit_pct: float = 10.0
+) -> Dict:
+    """
+    Implement Bollinger Bands trading strategy.
+    
+    Args:
+        hist_data: Historical price data with OHLC columns
+        period: BB period (default: 20)
+        multiplier: BB multiplier (default: 2)
+        initial_capital: Starting capital
+        stop_loss_pct: Stop loss percentage
+        take_profit_pct: Take profit percentage
+    
+    Returns:
+        Dictionary with trading results and metrics
+    """
+    if hist_data.empty or len(hist_data) < period:
+        return {"error": "Insufficient historical data"}
+    
+    try:
+        prices = hist_data['Close'].copy()
+        
+        # Calculate Bollinger Bands
+        upper_band, middle_band, lower_band = calculate_bollinger_bands(prices, period, multiplier)
+        
+        # Initialize trading variables
+        position = 0  # 0: no position, 1: long position
+        entry_price = 0
+        capital = initial_capital
+        shares = 0
+        trades = []
+        equity_curve = []
+        
+        # Trading signals and execution
+        for i in range(period, len(hist_data)):
+            current_price = prices.iloc[i]
+            current_date = hist_data.index[i]
+            
+            # Buy signal: price crosses below lower band
+            if position == 0 and current_price < lower_band.iloc[i] and not pd.isna(lower_band.iloc[i]):
+                shares = capital / current_price
+                entry_price = current_price
+                position = 1
+                capital = 0
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'BUY',
+                    'price': current_price,
+                    'shares': shares,
+                    'value': shares * current_price
+                })
+            
+            # Sell signal: price crosses above upper band OR stop loss/take profit
+            elif position == 1:
+                sell_signal = False
+                sell_reason = ""
+                
+                # Check sell conditions
+                if current_price > upper_band.iloc[i] and not pd.isna(upper_band.iloc[i]):
+                    sell_signal = True
+                    sell_reason = "Upper band crossed"
+                elif (current_price - entry_price) / entry_price * 100 >= take_profit_pct:
+                    sell_signal = True
+                    sell_reason = f"Take profit ({take_profit_pct}%)"
+                elif (entry_price - current_price) / entry_price * 100 >= stop_loss_pct:
+                    sell_signal = True
+                    sell_reason = f"Stop loss ({stop_loss_pct}%)"
+                
+                if sell_signal:
+                    capital = shares * current_price
+                    profit = capital - initial_capital if len(trades) == 1 else capital - trades[-2]['value']
+                    
+                    trades.append({
+                        'date': current_date,
+                        'action': 'SELL',
+                        'price': current_price,
+                        'shares': shares,
+                        'value': capital,
+                        'profit': profit,
+                        'reason': sell_reason
+                    })
+                    
+                    shares = 0
+                    position = 0
+            
+            # Calculate current portfolio value
+            current_value = capital + (shares * current_price if shares > 0 else 0)
+            equity_curve.append(current_value)
+        
+        # Calculate performance metrics
+        if not trades:
+            return {
+                "error": "No trades generated",
+                "bb_data": {
+                    "upper_band": upper_band,
+                    "middle_band": middle_band,
+                    "lower_band": lower_band,
+                    "prices": prices
+                }
+            }
+        
+        final_value = capital + (shares * prices.iloc[-1] if shares > 0 else 0)
+        total_return = (final_value - initial_capital) / initial_capital * 100
+        
+        # Calculate additional metrics
+        winning_trades = [t for t in trades if t.get('profit', 0) > 0]
+        losing_trades = [t for t in trades if t.get('profit', 0) < 0]
+        
+        buy_trades = [t for t in trades if t['action'] == 'BUY']
+        total_trades = len(buy_trades)
+        
+        win_rate = len(winning_trades) / total_trades * 100 if total_trades > 0 else 0
+        
+        avg_win = np.mean([t['profit'] for t in winning_trades]) if winning_trades else 0
+        avg_loss = np.mean([t['profit'] for t in losing_trades]) if losing_trades else 0
+        
+        max_drawdown = 0
+        peak = initial_capital
+        for value in equity_curve:
+            if value > peak:
+                peak = value
+            drawdown = (peak - value) / peak * 100
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+        
+        return {
+            "success": True,
+            "initial_capital": initial_capital,
+            "final_value": round(final_value, 2),
+            "total_return": round(total_return, 2),
+            "total_trades": total_trades,
+            "winning_trades": len(winning_trades),
+            "losing_trades": len(losing_trades),
+            "win_rate": round(win_rate, 2),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "max_drawdown": round(max_drawdown, 2),
+            "trades": trades,
+            "equity_curve": equity_curve,
+            "bb_data": {
+                "upper_band": upper_band,
+                "middle_band": middle_band,
+                "lower_band": lower_band,
+                "prices": prices
+            },
+            "parameters": {
+                "period": period,
+                "multiplier": multiplier,
+                "stop_loss_pct": stop_loss_pct,
+                "take_profit_pct": take_profit_pct
+            }
+        }
+        
+    except Exception as e:
+        return {"error": f"Strategy calculation error: {str(e)}"}
+
+def plot_bollinger_bands_chart(result: Dict, ticker: str) -> plt.Figure:
+    """
+    Create a chart showing price data with Bollinger Bands and trade signals.
+    
+    Args:
+        result: Result dictionary from bollinger_bands_strategy
+        ticker: Stock ticker symbol
+    
+    Returns:
+        Matplotlib figure
+    """
+    if "bb_data" not in result:
+        return None
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), height_ratios=[3, 1])
+    
+    bb_data = result["bb_data"]
+    prices = bb_data["prices"]
+    upper_band = bb_data["upper_band"]
+    middle_band = bb_data["middle_band"]
+    lower_band = bb_data["lower_band"]
+    
+    # Plot price and Bollinger Bands
+    ax1.plot(prices.index, prices, label='Price', color='black', linewidth=1)
+    ax1.plot(upper_band.index, upper_band, label='Upper Band', color='red', linestyle='--', alpha=0.7)
+    ax1.plot(middle_band.index, middle_band, label='Middle Band (SMA)', color='blue', linestyle='-', alpha=0.7)
+    ax1.plot(lower_band.index, lower_band, label='Lower Band', color='green', linestyle='--', alpha=0.7)
+    
+    # Fill between bands
+    ax1.fill_between(upper_band.index, upper_band, lower_band, alpha=0.1, color='gray')
+    
+    # Plot trade signals
+    if "trades" in result:
+        buy_signals = [t for t in result["trades"] if t["action"] == "BUY"]
+        sell_signals = [t for t in result["trades"] if t["action"] == "SELL"]
+        
+        if buy_signals:
+            buy_dates = [t["date"] for t in buy_signals]
+            buy_prices = [t["price"] for t in buy_signals]
+            ax1.scatter(buy_dates, buy_prices, color='green', marker='^', s=100, label='Buy Signal', zorder=5)
+        
+        if sell_signals:
+            sell_dates = [t["date"] for t in sell_signals]
+            sell_prices = [t["price"] for t in sell_signals]
+            ax1.scatter(sell_dates, sell_prices, color='red', marker='v', s=100, label='Sell Signal', zorder=5)
+    
+    ax1.set_title(f'{ticker} - Bollinger Bands Strategy', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('Price', fontsize=12)
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot equity curve
+    if "equity_curve" in result:
+        equity_dates = prices.index[result["parameters"]["period"]:]
+        ax2.plot(equity_dates, result["equity_curve"], color='purple', linewidth=2)
+        ax2.set_title('Portfolio Value', fontsize=12)
+        ax2.set_ylabel('Value ($)', fontsize=10)
+        ax2.set_xlabel('Date', fontsize=10)
+        ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    return fig
 def human_format(num):
     if pd.isna(num):
         return ""
@@ -415,7 +668,7 @@ markets = {
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "Backtesting", "คู่มือการใช้งาน"])
 
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
@@ -444,12 +697,270 @@ if menu == "คู่มือการใช้งาน":
 17. ROE ≥ 23%  
 18. Goodwill เพิ่มขึ้น
 
+### Backtesting Strategies
+**Bollinger Bands Strategy:**
+- ใช้ Bollinger Bands เพื่อหาจุดซื้อขาย
+- ซื้อเมื่อราคาข้ามลงใต้ Lower Band
+- ขายเมื่อราคาข้ามขึ้นเหนือ Upper Band
+- รองรับการตั้ง Stop Loss และ Take Profit
+- แสดงผลการ Backtest พร้อมกราฟและสถิติ
+
 ### หมายเหตุ
 - ข้อมูลหุ้น US มักครบถ้วนกว่าหุ้นไทย
 - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
 """)
+    st.stop()
+
+elif menu == "Backtesting":
+    st.header("📈 Backtesting Strategies")
+    st.markdown("**Test trading strategies on historical data to evaluate performance.**")
+    
+    # Strategy selection
+    strategy = st.selectbox(
+        "เลือกกลยุทธ์การเทรด", 
+        ["Bollinger Bands"],
+        index=0,
+        help="เลือกกลยุทธ์ที่ต้องการทดสอบ"
+    )
+    
+    if strategy == "Bollinger Bands":
+        st.subheader("🎯 Bollinger Bands Strategy")
+        st.markdown("""
+        **กลยุทธ์:** ซื้อเมื่อราคาทะลุลงใต้ Lower Band และขายเมื่อราคาทะลุขึ้นเหนือ Upper Band
+        
+        **หลักการ:** Bollinger Bands ช่วยระบุสภาวะ Oversold (ราคาต่ำเกินไป) และ Overbought (ราคาสูงเกินไป)
+        """)
+        
+        # Stock selection
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            selected_market = st.selectbox(
+                "เลือกตลาดหุ้น",
+                options=list(markets.keys()),
+                index=0,
+                help="เลือกตลาดหุ้นที่ต้องการทดสอบ"
+            )
+            
+            available_tickers = markets[selected_market]
+            ticker = st.selectbox(
+                "เลือกหุ้น",
+                available_tickers,
+                index=0 if available_tickers else None,
+                help="เลือกหุ้นที่ต้องการทดสอบกลยุทธ์"
+            )
+            
+            period = st.selectbox(
+                "ช่วงเวลาข้อมูล", 
+                ["1y", "2y", "5y", "max"], 
+                index=2,
+                help="ช่วงเวลาของข้อมูลราคาที่ใช้ในการทดสอบ"
+            )
+        
+        with col2:
+            st.subheader("⚙️ พารามิเตอร์กลยุทธ์")
+            
+            # Bollinger Bands parameters
+            bb_period = st.number_input(
+                "Period (จำนวนวันสำหรับค่าเฉลี่ย)",
+                min_value=5,
+                max_value=100,
+                value=20,
+                step=1,
+                help="จำนวนวันที่ใช้คำนวณ Moving Average และ Standard Deviation"
+            )
+            
+            bb_multiplier = st.number_input(
+                "Multiplier (ตัวคูณ Standard Deviation)",
+                min_value=0.5,
+                max_value=4.0,
+                value=2.0,
+                step=0.1,
+                help="ตัวคูณสำหรับ Standard Deviation ในการกำหนดความกว้างของ Bands"
+            )
+            
+            initial_capital = st.number_input(
+                "เงินทุนเริ่มต้น ($)",
+                min_value=1000.0,
+                max_value=1000000.0,
+                value=10000.0,
+                step=1000.0,
+                help="จำนวนเงินทุนเริ่มต้นสำหรับการทดสอบ"
+            )
+            
+            stop_loss_pct = st.number_input(
+                "Stop Loss (%)",
+                min_value=0.0,
+                max_value=50.0,
+                value=5.0,
+                step=0.5,
+                help="เปอร์เซ็นต์ขาดทุนที่จะขายหุ้นออก"
+            )
+            
+            take_profit_pct = st.number_input(
+                "Take Profit (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=10.0,
+                step=0.5,
+                help="เปอร์เซ็นต์กำไรที่จะขายหุ้นออก"
+            )
+        
+        # Validation
+        if bb_period <= 0 or bb_multiplier <= 0:
+            st.error("❌ พารามิเตอร์ต้องมีค่าเป็นบวก")
+        elif not ticker:
+            st.error("❌ กรุณาเลือกหุ้นที่ต้องการทดสอบ")
+        else:
+            if st.button("🚀 เริ่มการทดสอบ", type="primary"):
+                with st.spinner(f"กำลังทดสอบกลยุทธ์ Bollinger Bands สำหรับ {ticker}..."):
+                    try:
+                        # Fetch stock data
+                        stock = yf.Ticker(ticker)
+                        hist_data = stock.history(period=period)
+                        
+                        if hist_data.empty:
+                            st.error(f"❌ ไม่พบข้อมูลราคาสำหรับ {ticker}")
+                        else:
+                            # Run strategy
+                            result = bollinger_bands_strategy(
+                                hist_data=hist_data,
+                                period=bb_period,
+                                multiplier=bb_multiplier,
+                                initial_capital=initial_capital,
+                                stop_loss_pct=stop_loss_pct,
+                                take_profit_pct=take_profit_pct
+                            )
+                            
+                            if "error" in result:
+                                st.error(f"❌ {result['error']}")
+                            else:
+                                # Display results
+                                st.success("✅ การทดสอบสำเร็จ!")
+                                
+                                # Performance summary
+                                col1, col2, col3, col4 = st.columns(4)
+                                
+                                with col1:
+                                    st.metric(
+                                        "Total Return",
+                                        f"{result['total_return']}%",
+                                        delta=f"{result['total_return']:.2f}%"
+                                    )
+                                
+                                with col2:
+                                    st.metric(
+                                        "Final Value",
+                                        f"${result['final_value']:,.2f}",
+                                        delta=f"${result['final_value'] - result['initial_capital']:,.2f}"
+                                    )
+                                
+                                with col3:
+                                    st.metric(
+                                        "Total Trades",
+                                        f"{result['total_trades']}",
+                                        delta=f"Win Rate: {result['win_rate']}%"
+                                    )
+                                
+                                with col4:
+                                    st.metric(
+                                        "Max Drawdown",
+                                        f"{result['max_drawdown']}%",
+                                        delta=f"-{result['max_drawdown']:.2f}%",
+                                        delta_color="inverse"
+                                    )
+                                
+                                # Charts
+                                st.subheader("📊 กราฟและสัญญาณการเทรด")
+                                
+                                try:
+                                    fig = plot_bollinger_bands_chart(result, ticker)
+                                    if fig:
+                                        st.pyplot(fig)
+                                    else:
+                                        st.warning("ไม่สามารถสร้างกราฟได้")
+                                except Exception as e:
+                                    st.error(f"เกิดข้อผิดพลาดในการสร้างกราฟ: {str(e)}")
+                                
+                                # Detailed statistics
+                                st.subheader("📈 สถิติรายละเอียด")
+                                
+                                stats_col1, stats_col2 = st.columns(2)
+                                
+                                with stats_col1:
+                                    st.markdown("**การเทรด:**")
+                                    st.write(f"• จำนวนการเทรดทั้งหมด: {result['total_trades']}")
+                                    st.write(f"• การเทรดที่ได้กำไร: {result['winning_trades']}")
+                                    st.write(f"• การเทรดที่ขาดทุน: {result['losing_trades']}")
+                                    st.write(f"• อัตราการชนะ: {result['win_rate']:.2f}%")
+                                
+                                with stats_col2:
+                                    st.markdown("**ผลตอบแทน:**")
+                                    st.write(f"• กำไรเฉลี่ยต่อเทรด: ${result['avg_win']:.2f}")
+                                    st.write(f"• ขาดทุนเฉลี่ยต่อเทรด: ${result['avg_loss']:.2f}")
+                                    st.write(f"• การลดลงสูงสุด: {result['max_drawdown']:.2f}%")
+                                
+                                # Trade history
+                                if result['trades']:
+                                    st.subheader("📋 ประวัติการเทรด")
+                                    
+                                    trades_df = pd.DataFrame(result['trades'])
+                                    trades_df['date'] = pd.to_datetime(trades_df['date']).dt.strftime('%Y-%m-%d')
+                                    trades_df['price'] = trades_df['price'].round(2)
+                                    trades_df['value'] = trades_df['value'].round(2)
+                                    
+                                    st.dataframe(
+                                        trades_df,
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+                                
+                                # Export option
+                                if result['trades']:
+                                    st.subheader("💾 ส่งออกผลลัพธ์")
+                                    
+                                    # Prepare export data
+                                    export_data = {
+                                        "Strategy": "Bollinger Bands",
+                                        "Ticker": ticker,
+                                        "Period": period,
+                                        "BB_Period": bb_period,
+                                        "BB_Multiplier": bb_multiplier,
+                                        "Initial_Capital": initial_capital,
+                                        "Stop_Loss_%": stop_loss_pct,
+                                        "Take_Profit_%": take_profit_pct,
+                                        "Total_Return_%": result['total_return'],
+                                        "Final_Value": result['final_value'],
+                                        "Total_Trades": result['total_trades'],
+                                        "Win_Rate_%": result['win_rate'],
+                                        "Max_Drawdown_%": result['max_drawdown'],
+                                        "Avg_Win": result['avg_win'],
+                                        "Avg_Loss": result['avg_loss']
+                                    }
+                                    
+                                    # Create Excel file
+                                    output = io.BytesIO()
+                                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                                        # Summary sheet
+                                        summary_df = pd.DataFrame([export_data])
+                                        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                                        
+                                        # Trades sheet
+                                        trades_df = pd.DataFrame(result['trades'])
+                                        trades_df.to_excel(writer, sheet_name='Trades', index=False)
+                                    
+                                    st.download_button(
+                                        label="📥 ดาวน์โหลดผลลัพธ์ (Excel)",
+                                        data=output.getvalue(),
+                                        file_name=f'BB_Backtest_{ticker}_{datetime.datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+                                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                                    )
+                    
+                    except Exception as e:
+                        st.error(f"❌ เกิดข้อผิดพลาด: {str(e)}")
+    
     st.stop()
 
 # Market selection
