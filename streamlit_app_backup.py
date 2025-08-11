@@ -737,11 +737,175 @@ elif menu == "วิเคราะห์หุ้น":
     show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
     if st.button("วิเคราะห์"):
-        if not tickers:
-            st.warning("กรุณาเลือกหุ้นอย่างน้อย 1 ตัว")
-        else:
-            # Run the analysis here in a simplified way
-            st.success("กำลังวิเคราะห์หุ้น...")
-            st.info("ฟีเจอร์วิเคราะห์หุ้นยังคงใช้งานได้ตามเดิม แต่จะถูกย้ายมาแสดงผลในส่วนนี้ในเวอร์ชันถัดไป")
-    
+        export_list = []
+        results_table = []
+        total_invest = 0
+        total_profit = 0
+        total_div = 0
+
+        for ticker in tickers:
+            stock = yf.Ticker(ticker)
+            fin = stock.financials
+            bs = stock.balance_sheet
+            cf = stock.cashflow
+            div = stock.dividends
+            hist = stock.history(period=period)
+            info = stock.info
+
+            manual_yield = np.nan
+            total_div1y = np.nan
+
+        with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
+            st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
+
+            # 1. Dividend Yield (% ต่อปี)
+            div_yield = info.get('dividendYield', None)
+            div_yield_pct = round(div_yield * 100, 2) if div_yield is not None else "N/A"
+
+            # 2. วันที่ปันผลล่าสุด (Ex-Dividend Date)
+            ex_div = info.get('exDividendDate', None)
+            if ex_div:
+                try:
+                    ex_div_date = datetime.datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
+                except Exception:
+                    ex_div_date = str(ex_div)
+            else:
+                ex_div_date = "N/A"
+
+            # 3. 52-Week High / Low
+            w52_high = info.get('fiftyTwoWeekHigh', "N/A")
+            w52_low = info.get('fiftyTwoWeekLow', "N/A")
+
+            # 4. ราคาปิดล่าสุด, ราคาเปิดล่าสุด
+            last_close = info.get('previousClose', "N/A")
+            last_open = info.get('open', "N/A")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Dividend Yield (%)", div_yield_pct)
+                st.metric("Ex-Dividend Date", ex_div_date)
+            with col2:
+                st.metric("52W High", w52_high)
+                st.metric("52W Low", w52_low)
+            with col3:
+                st.metric("ราคาปิดล่าสุด", last_close)
+                st.metric("ราคาเปิดล่าสุด", last_open)
+
+            # --------- สรุปปันผลย้อนหลัง 1 ปี ---------
+            st.subheader("ผลตอบแทนเงินปันผลย้อนหลัง 1 ปี (คำนวณจากราคาจริง)")
+            if not div.empty and not hist.empty:
+                last_year = hist.index[-1] - pd.DateOffset(years=1)
+                recent_div = div[div.index >= last_year]
+                total_div1y = recent_div.sum()
+                avg_price1y = hist['Close'][hist.index >= last_year].mean()
+                price_base = avg_price1y if (avg_price1y and avg_price1y > 0) else hist['Close'].iloc[-1]
+                manual_yield = (total_div1y / price_base) * 100 if price_base > 0 else np.nan
+
+                st.markdown(f"""
+                <div style='font-size:1.1em;'>
+                <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div1y:.2f}</span><br>
+                <b>ราคาเฉลี่ย 1 ปี:</b> <span style='color:blue'>{price_base:.2f}</span><br>
+                <b>อัตราผลตอบแทน (Dividend Yield):</b> <span style='color:red;font-size:1.3em'>{manual_yield:.2f}%</span>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("ไม่มีข้อมูลปันผลย้อนหลัง (dividends) สำหรับหุ้นนี้")
+
+            st.subheader("Buffett 11 Checklist (แบบละเอียด)")
+            detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
+            badge = get_badge(detail['score_pct'])
+            st.markdown(f"**คะแนนภาพรวม:** {detail['score']} / {detail['evaluated']} ({detail['score_pct']}%) &nbsp;&nbsp;|&nbsp;&nbsp;**ป้ายคะแนน:** {badge}")
+
+            # ตารางรายละเอียดแต่ละข้อ
+            df_detail = pd.DataFrame([
+                {
+                    'ข้อ': i + 1,
+                    'รายการ': d['title'],
+                    'ผลลัพธ์': "✅ ผ่าน" if d['result'] == 1 else ("❌ ไม่ผ่าน" if d['result'] == 0 else "⚪ N/A"),
+                    'คำอธิบาย': d['desc']
+                }
+                for i, d in enumerate(detail['details'])
+            ])
+            st.dataframe(df_detail, hide_index=True)
+
+            st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
+            dca_result = dca_simulation(hist, monthly_invest, div)
+            st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
+
+            # สะสมผลรวม
+            total_invest += dca_result["เงินลงทุนรวม"]
+            total_profit += dca_result["กำไร/ขาดทุน"]
+            total_div += dca_result["เงินปันผลรวม"]
+
+            results_table.append({
+                "หุ้น": ticker,
+                "เงินลงทุน": dca_result["เงินลงทุนรวม"],
+                "กำไร": dca_result["กำไร/ขาดทุน"],
+                "เงินปันผล": dca_result["เงินปันผลรวม"],
+                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"]
+            })
+
+            if not hist.empty:
+                st.line_chart(hist['Close'])
+            else:
+                st.warning("ไม่มีข้อมูลราคาหุ้น")
+
+            if show_financials and fin is not None and not fin.empty:
+                st.subheader("งบกำไรขาดทุน (Income Statement)")
+                st.dataframe(df_human_format(fin))
+
+            export_list.append({
+                "หุ้น": ticker,
+                "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
+                "จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
+                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
+                "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
+                "กำไร(%)": dca_result["กำไร(%)"],
+                "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
+                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not np.isnan(manual_yield) else "N/A",
+                "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not np.isnan(total_div1y) else "N/A",
+                "Dividend Yield (%)": div_yield_pct,
+                "Ex-Dividend Date": ex_div_date,
+                "52W High": w52_high,
+                "52W Low": w52_low,
+                "ราคาปิดล่าสุด": last_close,
+                "ราคาเปิดล่าสุด": last_open,
+                "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
+                "เปอร์เซ็นต์": detail['score_pct'],
+                "ป้ายคะแนน": badge,
+            })
+
+    # --- Export to Excel ---
+    if len(export_list) > 0:
+        df_export = pd.DataFrame(export_list)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_export.to_excel(writer, index=False, sheet_name='WarrenDCA')
+        st.download_button(
+            label="📥 ดาวน์โหลดผลลัพธ์เป็น Excel",
+            data=output.getvalue(),
+            file_name='WarrenDCA_Result.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    # --- สรุปผลหุ้นที่เลือก DCA Simulator รวม ---
+    st.header("สรุปผลรวมหุ้นที่เลือก (DCA Simulator)")
+    st.write(f"💰 เงินลงทุนรวม: {total_invest:.2f}")
+    st.write(f"📈 กำไรรวม: {total_profit:.2f}")
+    st.write(f"💵 เงินปันผลรวมที่ได้รับ: {total_div:.2f}")
+
+    # ตารางสรุปหุ้นที่เลือก
+    if results_table:
+        st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
+        st.dataframe(pd.DataFrame(results_table))
+
+    # --- Pie Chart ---
+    pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
+    pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
+    fig, ax = plt.subplots()
+    colors = ['#2196f3', '#4caf50', '#ffc107']
+    ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
+    ax.set_title("INVEST/Profit/DivyYield")
+    st.pyplot(fig)
+
     st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
