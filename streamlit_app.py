@@ -31,17 +31,24 @@ def calc_dividend_yield_manual(div, hist):
         return total_div, avg_price, manual_yield
     return 0, 0, np.nan
 
-def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=None):
+def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=None, commission_fee: float = 0.0):
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
     prices = hist_prices['Close'].resample('M').first().dropna()
-    units = monthly_invest / prices
+    
+    # Calculate commission fee per transaction
+    commission_per_transaction = monthly_invest * (commission_fee / 100)
+    effective_invest_amount = monthly_invest - commission_per_transaction
+    
+    units = effective_invest_amount / prices
     total_units = units.sum()
-    total_invested = monthly_invest * len(prices)
-    avg_buy_price = total_invested / total_units if total_units != 0 else 0
+    total_invested = monthly_invest * len(prices)  # Total invested including fees
+    total_fees = commission_per_transaction * len(prices)
+    effective_total_invested = total_invested - total_fees  # Amount actually used to buy stocks
+    avg_buy_price = effective_total_invested / total_units if total_units != 0 else 0
     latest_price = prices.iloc[-1]
     current_value = total_units * latest_price
-    profit = current_value - total_invested
+    profit = current_value - total_invested  # Profit accounts for fees
     # คำนวณเงินปันผลรวมที่ได้รับตามจำนวนหุ้นที่ถือในแต่ละเดือน
     total_div = 0
     if div is not None and not div.empty:
@@ -54,6 +61,8 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
                     total_div += div_in_month * cum_units.iloc[i]
     return {
         "เงินลงทุนรวม": round(total_invested, 2),
+        "ค่าคอมมิชชั่นรวม": round(total_fees, 2),
+        "เงินซื้อหุ้นจริง": round(effective_total_invested, 2),
         "จำนวนหุ้นสะสม": round(total_units, 4),
         "มูลค่าปัจจุบัน": round(current_value, 2),
         "กำไร/ขาดทุน": round(profit, 2),
@@ -363,7 +372,7 @@ def get_badge(score_pct):
     else:
         return "🟥 ควรระวัง (Poor)"
 
-# ----------------- SET100/US STOCKS -----------------
+# ----------------- SET100/US/GLOBAL STOCKS -----------------
 set100 = [
     "ADVANC.BK", "AOT.BK", "AP.BK", "AWC.BK", "BAM.BK", "BANPU.BK", "BBL.BK", "BCP.BK", "BDMS.BK", "BEC.BK",
     "BEM.BK", "BGRIM.BK", "BH.BK", "BJC.BK", "BLA.BK", "BPP.BK", "BTS.BK", "CBG.BK", "CENTEL.BK", "CHG.BK",
@@ -380,7 +389,30 @@ us_stocks = [
     "AAPL", "TSLA", "NVDA", "GOOG", "MSFT", "SBUX", "AMD", "BABA", "T", "WMT",
     "SONY", "KO", "MCD", "MCO", "SNAP", "DIS", "NFLX", "GPRO", "CCL", "PLTR", "CBOE", "HD", "F", "COIN"
 ]
-all_tickers = us_stocks + set100
+global_stocks = [
+    # Europe
+    "ASML", "NESN.SW", "RDSA.L", "SAP", "LVMH.PA", "MC.PA", "OR.PA", "SAN.PA", "INGA.AS", "ADS.DE",
+    "SAP.DE", "SIE.DE", "ALV.DE", "DTE.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "DAI.DE", "VOW3.DE", "FRE.DE",
+    # UK
+    "SHEL.L", "AZN.L", "ULVR.L", "DGE.L", "VOD.L", "GSK.L", "BP.L", "RIO.L", "BHP.L", "HSBA.L",
+    # Japan
+    "7203.T", "6758.T", "6861.T", "8306.T", "9984.T", "6954.T", "7267.T", "4502.T", "8316.T", "6098.T",
+    # Australia
+    "CBA.AX", "BHP.AX", "CSL.AX", "WBC.AX", "ANZ.AX", "NAB.AX", "WES.AX", "WOW.AX", "TLS.AX", "RIO.AX",
+    # South Korea  
+    "005930.KS", "000660.KS", "035420.KS", "051910.KS", "035720.KS", "028260.KS", "066570.KS", "105560.KS",
+    # Hong Kong
+    "0700.HK", "0941.HK", "1299.HK", "0388.HK", "2318.HK", "1398.HK", "3988.HK", "0005.HK", "0883.HK", "2628.HK"
+]
+
+markets = {
+    "US": us_stocks,
+    "SET100": set100,
+    "Global": global_stocks,
+    "All": us_stocks + set100 + global_stocks
+}
+
+all_tickers = us_stocks + set100 + global_stocks
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
@@ -391,7 +423,13 @@ if menu == "คู่มือการใช้งาน":
     st.markdown("""
 **Warren-DCA คืออะไร?**  
 โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี  
-**แหล่งข้อมูล:** Yahoo Finance
+**แหล่งข้อมูล:** Yahoo Finance  
+**ตลาดหุ้นที่รองรับ:** US, SET100 (Thailand), Global (Europe, Asia, Australia)
+
+### ฟีเจอร์ใหม่
+- **ค่าคอมมิชชั่น:** สามารถระบุค่าคอมมิชชั่นต่อการซื้อขาย (เช่น 0.25% สำหรับโบรกเกอร์ไทย)
+- **ชื่อบริษัทเต็ม:** แสดงชื่อบริษัทเต็มควบคู่กับสัญลักษณ์หุ้น
+- **หุ้นสากล:** รองรับหุ้นจากยุโรป เอเชีย และออสเตรเลีย
 
 ### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
 1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
@@ -417,16 +455,21 @@ if menu == "คู่มือการใช้งาน":
 - ข้อมูลหุ้น US มักครบถ้วนกว่าหุ้นไทย
 - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
+- ค่าคอมมิชชั่นจะถูกหักออกจากเงินลงทุนก่อนซื้อหุ้นในแต่ละครั้ง
 """)
     st.stop()
 
+market_selection = st.selectbox("เลือกตลาด", ["All", "US", "SET100", "Global"], index=0)
+available_tickers = markets[market_selection]
+
 tickers = st.multiselect(
-    "เลือกหุ้น (US & SET100)",
-    all_tickers,
-    default=["AAPL", "PTT.BK"]
+    f"เลือกหุ้น ({market_selection})",
+    available_tickers,
+    default=["AAPL", "PTT.BK"] if market_selection == "All" else available_tickers[:2]
 )
 period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
 monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
+commission_fee = st.number_input("ค่าคอมมิชชั่น (%)", min_value=0.0, max_value=5.0, value=0.0, step=0.1, help="ค่าคอมมิชชั่นต่อการซื้อแต่ละครั้ง เช่น 0.25% สำหรับโบรกเกอร์ไทย")
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
 if st.button("วิเคราะห์"):
@@ -448,8 +491,12 @@ if st.button("วิเคราะห์"):
         manual_yield = np.nan
         total_div1y = np.nan
 
-        with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
-            st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
+        # Get company name
+        company_name = info.get('longName', 'N/A')
+
+        with st.expander(f"ดูรายละเอียดหุ้น {ticker} - {company_name}", expanded=False):
+            st.subheader(f"ข้อมูลราคาหุ้นและปันผลล่าสุด - {company_name}")
+            st.caption(f"บริษัท: {company_name}")
 
             # 1. Dividend Yield (% ต่อปี)
             div_yield = info.get('dividendYield', None)
@@ -522,7 +569,7 @@ if st.button("วิเคราะห์"):
             st.dataframe(df_detail, hide_index=True)
 
             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest, div)
+            dca_result = dca_simulation(hist, monthly_invest, div, commission_fee)
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
             # สะสมผลรวม
@@ -532,7 +579,9 @@ if st.button("วิเคราะห์"):
 
             results_table.append({
                 "หุ้น": ticker,
+                "ชื่อบริษัท": company_name,
                 "เงินลงทุน": dca_result["เงินลงทุนรวม"],
+                "ค่าคอมมิชชั่น": dca_result["ค่าคอมมิชชั่นรวม"],
                 "กำไร": dca_result["กำไร/ขาดทุน"],
                 "เงินปันผล": dca_result["เงินปันผลรวม"],
                 "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"]
@@ -549,7 +598,10 @@ if st.button("วิเคราะห์"):
 
             export_list.append({
                 "หุ้น": ticker,
+                "ชื่อบริษัท": company_name,
                 "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
+                "ค่าคอมมิชชั่นรวม": dca_result["ค่าคอมมิชชั่นรวม"],
+                "เงินซื้อหุ้นจริง": dca_result["เงินซื้อหุ้นจริง"],
                 "จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
                 "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
                 "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
