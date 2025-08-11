@@ -45,7 +45,7 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
     # คำนวณเงินปันผลรวมที่ได้รับตามจำนวนหุ้นที่ถือในแต่ละเดือน
     total_div = 0
     if div is not None and not div.empty:
-        # ปรับการคำนวณ: ถือหุ้นตามยอดสะสมแต่ละเดือน ถ้าอยากละเอียดให้ sum ตาม ex-div date
+        # ปรับการคำนวณ: ถือหุ้นตามยอดสะสมแต่ละเดือน ถ้าอยากละเอียดให้ sum ตาม ex-d[...]
         div_period = div[div.index >= prices.index[0]]
         # สมมติเงินปันผลจ่ายต่อหุ้นตามยอดสะสมในแต่ละเดือน
         if not div_period.empty:
@@ -66,7 +66,8 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
         "ราคาเฉลี่ยที่ซื้อ": round(avg_buy_price, 2),
         "ราคาปิดล่าสุด": round(latest_price, 2),
         "เงินปันผลรวม": round(total_div, 2)
-    }# ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
+    }
+# ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
 def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
     results = []
     score = 0
@@ -88,7 +89,7 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
         res = 1 if inv_growth and ni_growth else 0
     except:
         res = -1
-    results.append({'title':'1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง','result':res,'desc':'Inventory และ Net Income ต้องโตต่อเนื่อง'})
+    results.append({'title':'1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง','result':res,'desc':'Inventory และ Net Income ต้องโตต่อเน�[...]
     if res != -1: score += res; evaluated += 1
 
     try:
@@ -182,7 +183,7 @@ def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, his
             res = -1
     except:
         res = -1
-    results.append({'title':'5.2 EBITDA จ่ายหนี้ LTD หมดใน ≤ 4 ปี','result':res,'desc':'EBITDA ล่าสุดชำระหนี้ LTD หมดใน ≤ 4 ปี'})
+    results.append({'title':'5.2 EBITDA จ่ายหนี้ LTD หมดใน ≤ 4 ปี','result':res,'desc':'EBITDA ล่าสุดชำระหนี้ LTD หมดใน ≤ 4 ป�[...]
     if res != -1: score += res; evaluated += 1
 
     try:
@@ -309,27 +310,6 @@ def get_badge(score_pct):
     else:
         return "🟥 ควรระวัง (Poor)"
 
-def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000):
-    if hist_prices.empty:
-        return {"error": "ไม่มีข้อมูลราคาหุ้น"}
-    prices = hist_prices['Close'].resample('M').first().dropna()
-    units = monthly_invest / prices
-    total_units = units.sum()
-    total_invested = monthly_invest * len(prices)
-    avg_buy_price = total_invested / total_units if total_units != 0 else 0
-    latest_price = prices.iloc[-1]
-    current_value = total_units * latest_price
-    profit = current_value - total_invested
-    return {
-        "เงินลงทุนรวม": round(total_invested, 2),
-        "จำนวนหุ้นสะสม": round(total_units, 4),
-        "มูลค่าปัจจุบัน": round(current_value, 2),
-        "กำไร/ขาดทุน": round(profit, 2),
-        "กำไร(%)": round(profit/total_invested*100, 2) if total_invested != 0 else 0,
-        "ราคาเฉลี่ยที่ซื้อ": round(avg_buy_price, 2),
-        "ราคาปิดล่าสุด": round(latest_price, 2)
-    }
-
 # ----------------- SET100/US STOCKS -----------------
 set100 = [
     "ADVANC.BK", "AOT.BK", "AP.BK", "AWC.BK", "BAM.BK", "BANPU.BK", "BBL.BK", "BCP.BK", "BDMS.BK", "BEC.BK",
@@ -357,7 +337,7 @@ if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
 **Warren-DCA คืออะไร?**  
-โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการลงทุนแบบถัวเฉลี่ย (DCA)  
+โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการล��[...]
 **แหล่งข้อมูล:** Yahoo Finance
 
 ### กฎ 11 ข้อ (DCA Checklist แบบละเอียด)
@@ -398,6 +378,11 @@ show_financials = st.checkbox("แสดงงบการเงิน (Income S
 
 if st.button("วิเคราะห์"):
     export_list = []
+    results_table = []
+    total_invest = 0
+    total_profit = 0
+    total_div = 0
+
     for ticker in tickers:
         stock = yf.Ticker(ticker)
         fin = stock.financials
@@ -449,14 +434,14 @@ if st.button("วิเคราะห์"):
             if not div.empty and not hist.empty:
                 last_year = hist.index[-1] - pd.DateOffset(years=1)
                 recent_div = div[div.index >= last_year]
-                total_div = recent_div.sum()
-                avg_price = hist['Close'][hist.index >= last_year].mean()
-                price_base = avg_price if avg_price and avg_price > 0 else hist['Close'].iloc[-1]
-                manual_yield = (total_div / price_base) * 100 if price_base > 0 else np.nan
+                total_div1y = recent_div.sum()
+                avg_price1y = hist['Close'][hist.index >= last_year].mean()
+                price_base = avg_price1y if avg_price1y and avg_price1y > 0 else hist['Close'].iloc[-1]
+                manual_yield = (total_div1y / price_base) * 100 if price_base > 0 else np.nan
 
                 st.markdown(f"""
                 <div style='font-size:1.1em;'>
-                <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div:.2f}</span><br>
+                <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div1y:.2f}</span><br>
                 <b>ราคาเฉลี่ย 1 ปี:</b> <span style='color:blue'>{price_base:.2f}</span><br>
                 <b>อัตราผลตอบแทน (Dividend Yield):</b> <span style='color:red;font-size:1.3em'>{manual_yield:.2f}%</span>
                 </div>
@@ -482,36 +467,6 @@ if st.button("วิเคราะห์"):
             st.dataframe(df_detail, hide_index=True)
 
             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest)
-            st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
-
-            if not hist.empty:
-                st.line_chart(hist['Close'])
-            else:
-                st.warning("ไม่มีข้อมูลราคาหุ้น")
-
-            if show_financials and fin is not None and not fin.empty:
-                st.subheader("งบกำไรขาดทุน (Income Statement)")
-                st.dataframe(df_human_format(fin))
-
-            # -- เตรียม export (ดึงค่า manual yield ด้วย) --
-            export_list.append({
-                "หุ้น": ticker,
-                "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
-                "เปอร์เซ็นต์": detail['score_pct'],
-                "ป้ายคะแนน": badge,
-                **dca_result,
-                "Dividend Yield (%)": div_yield_pct,
-                "Ex-Dividend Date": ex_div_date,
-                "52W High": w52_high,
-                "52W Low": w52_low,
-                "ราคาปิดล่าสุด": last_close,
-                "ราคาเปิดล่าสุด": last_open,
-                "เงินปันผลย้อนหลัง 1 ปี": round(total_div,2) if not div.empty and not hist.empty else "N/A",
-                "Yield ย้อนหลัง 1 ปี (%)": round(manual_yield,2) if not div.empty and not hist.empty else "N/A"
-            })
-
-st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
             dca_result = dca_simulation(hist, monthly_invest, div)
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
@@ -545,8 +500,17 @@ st.subheader("DCA Simulation (จำลองลงทุนรายเดื�
                 "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
                 "กำไร(%)": dca_result["กำไร(%)"],
                 "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
-                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield,
-                "เงินปันผลย้อนหลัง 1 ปี": total_div1y,
+                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not div.empty and not hist.empty else "N/A",
+                "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not div.empty and not hist.empty else "N/A",
+                "Dividend Yield (%)": div_yield_pct,
+                "Ex-Dividend Date": ex_div_date,
+                "52W High": w52_high,
+                "52W Low": w52_low,
+                "ราคาปิดล่าสุด": last_close,
+                "ราคาเปิดล่าสุด": last_open,
+                "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
+                "เปอร์เซ็นต์": detail['score_pct'],
+                "ป้ายคะแนน": badge,
             })
 
     # --- Export to Excel ---
@@ -582,4 +546,4 @@ st.subheader("DCA Simulation (จำลองลงทุนรายเดื�
     ax.set_title("สัดส่วนเงินลงทุน/กำไร/เงินปันผล")
     st.pyplot(fig)
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA + ปันผลย้อนหลัง พร้อมสรุปผลทุกหุ้นและกราฟวงกลม")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA + ปันผลย้อนหลัง พร้อม�[...]")
