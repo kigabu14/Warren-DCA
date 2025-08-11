@@ -4,6 +4,7 @@ import pandas as pd
 import io
 import datetime
 import numpy as np
+import matplotlib.pyplot as plt
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -19,7 +20,53 @@ def human_format(num):
 def df_human_format(df):
     return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
-# ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
+def calc_dividend_yield_manual(div, hist):
+    """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
+    if not div.empty and not hist.empty:
+        last_year = hist.index[-1] - pd.DateOffset(years=1)
+        recent_div = div[div.index >= last_year]
+        total_div = recent_div.sum()
+        avg_price = hist['Close'][hist.index >= last_year].mean()
+        manual_yield = (total_div / avg_price) * 100 if avg_price > 0 else np.nan
+        return total_div, avg_price, manual_yield
+    return 0, 0, np.nan
+
+def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=None):
+    if hist_prices.empty:
+        return {"error": "ไม่มีข้อมูลราคาหุ้น"}
+    prices = hist_prices['Close'].resample('M').first().dropna()
+    units = monthly_invest / prices
+    total_units = units.sum()
+    total_invested = monthly_invest * len(prices)
+    avg_buy_price = total_invested / total_units if total_units != 0 else 0
+    latest_price = prices.iloc[-1]
+    current_value = total_units * latest_price
+    profit = current_value - total_invested
+    # คำนวณเงินปันผลรวมที่ได้รับตามจำนวนหุ้นที่ถือในแต่ละเดือน
+    total_div = 0
+    if div is not None and not div.empty:
+        # ปรับการคำนวณ: ถือหุ้นตามยอดสะสมแต่ละเดือน ถ้าอยากละเอียดให้ sum ตาม ex-div date
+        div_period = div[div.index >= prices.index[0]]
+        # สมมติเงินปันผลจ่ายต่อหุ้นตามยอดสะสมในแต่ละเดือน
+        if not div_period.empty:
+            total_div = 0
+            # จำลองถือหุ้นสะสมในแต่ละเดือน
+            cum_units = units.cumsum()
+            for i, dt in enumerate(prices.index):
+                # หาเงินปันผลที่จ่ายในเดือนนั้น
+                div_in_month = div_period[(div_period.index.month == dt.month) & (div_period.index.year == dt.year)].sum()
+                if div_in_month > 0:
+                    total_div += div_in_month * cum_units.iloc[i]
+    return {
+        "เงินลงทุนรวม": round(total_invested, 2),
+        "จำนวนหุ้นสะสม": round(total_units, 4),
+        "มูลค่าปัจจุบัน": round(current_value, 2),
+        "กำไร/ขาดทุน": round(profit, 2),
+        "กำไร(%)": round(profit/total_invested*100, 2) if total_invested != 0 else 0,
+        "ราคาเฉลี่ยที่ซื้อ": round(avg_buy_price, 2),
+        "ราคาปิดล่าสุด": round(latest_price, 2),
+        "เงินปันผลรวม": round(total_div, 2)
+    }# ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
 def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
     results = []
     score = 0
@@ -464,6 +511,44 @@ if st.button("วิเคราะห์"):
                 "Yield ย้อนหลัง 1 ปี (%)": round(manual_yield,2) if not div.empty and not hist.empty else "N/A"
             })
 
+st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
+            dca_result = dca_simulation(hist, monthly_invest, div)
+            st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
+
+            # สะสมผลรวม
+            total_invest += dca_result["เงินลงทุนรวม"]
+            total_profit += dca_result["กำไร/ขาดทุน"]
+            total_div += dca_result["เงินปันผลรวม"]
+
+            results_table.append({
+                "หุ้น": ticker,
+                "เงินลงทุน": dca_result["เงินลงทุนรวม"],
+                "กำไร": dca_result["กำไร/ขาดทุน"],
+                "เงินปันผล": dca_result["เงินปันผลรวม"],
+                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"]
+            })
+
+            if not hist.empty:
+                st.line_chart(hist['Close'])
+            else:
+                st.warning("ไม่มีข้อมูลราคาหุ้น")
+
+            if show_financials and fin is not None and not fin.empty:
+                st.subheader("งบกำไรขาดทุน (Income Statement)")
+                st.dataframe(df_human_format(fin))
+
+            export_list.append({
+                "หุ้น": ticker,
+                "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
+                "จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
+                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
+                "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
+                "กำไร(%)": dca_result["กำไร(%)"],
+                "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
+                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield,
+                "เงินปันผลย้อนหลัง 1 ปี": total_div1y,
+            })
+
     # --- Export to Excel ---
     if len(export_list) > 0:
         df_export = pd.DataFrame(export_list)
@@ -477,4 +562,24 @@ if st.button("วิเคราะห์"):
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA + ปันผลย้อนหลัง พร้อม Export Excel (เมนูไทย)")
+    # --- สรุปผลหุ้นที่เลือก DCA Simulator รวม ---
+    st.header("สรุปผลรวมหุ้นที่เลือก (DCA Simulator)")
+    st.write(f"💰 เงินลงทุนรวม: {total_invest:.2f}")
+    st.write(f"📈 กำไรรวม: {total_profit:.2f}")
+    st.write(f"💵 เงินปันผลรวมที่ได้รับ: {total_div:.2f}")
+
+    # ตารางสรุปหุ้นที่เลือก
+    if results_table:
+        st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
+        st.dataframe(pd.DataFrame(results_table))
+
+    # --- Pie Chart ---
+    pie_labels = ["เงินลงทุน", "กำไร/ขาดทุน", "เงินปันผล"]
+    pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
+    fig, ax = plt.subplots()
+    colors = ['#2196f3', '#4caf50', '#ffc107']
+    ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
+    ax.set_title("สัดส่วนเงินลงทุน/กำไร/เงินปันผล")
+    st.pyplot(fig)
+
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA + ปันผลย้อนหลัง พร้อมสรุปผลทุกหุ้นและกราฟวงกลม")
