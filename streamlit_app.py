@@ -5,6 +5,7 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+import backtrader as bt
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -62,6 +63,174 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
         "ราคาปิดล่าสุด": round(latest_price, 2),
         "เงินปันผลรวม": round(total_div, 2)
     }
+
+# ----------------- Backtesting Functions & Strategies -----------------
+class MovingAverageCrossStrategy(bt.Strategy):
+    """กลยุทธ์ Moving Average Crossover"""
+    params = (
+        ('fast_period', 10),
+        ('slow_period', 30),
+        ('stop_loss', 0.1),  # 10% stop loss
+        ('take_profit', 0.2),  # 20% take profit
+    )
+
+    def __init__(self):
+        self.fast_ma = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.fast_period)
+        self.slow_ma = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.slow_period)
+        self.crossover = bt.indicators.CrossOver(self.fast_ma, self.slow_ma)
+        self.buy_price = None
+        self.buy_comm = None
+
+    def next(self):
+        if not self.position:
+            # Buy signal: fast MA crosses above slow MA
+            if self.crossover > 0:
+                self.buy()
+                self.buy_price = self.data.close[0]
+        else:
+            # Already in position
+            current_price = self.data.close[0]
+            if self.buy_price:
+                # Calculate profit/loss percentage
+                pnl_pct = (current_price - self.buy_price) / self.buy_price
+                
+                # Sell conditions
+                if (self.crossover < 0 or  # fast MA crosses below slow MA
+                    pnl_pct <= -self.params.stop_loss or  # stop loss
+                    pnl_pct >= self.params.take_profit):  # take profit
+                    self.sell()
+                    self.buy_price = None
+
+class RSIStrategy(bt.Strategy):
+    """กลยุทธ์ RSI (Relative Strength Index)"""
+    params = (
+        ('rsi_period', 14),
+        ('rsi_overbought', 70),
+        ('rsi_oversold', 30),
+        ('stop_loss', 0.1),
+        ('take_profit', 0.15),
+    )
+
+    def __init__(self):
+        self.rsi = bt.indicators.RelativeStrengthIndex(period=self.params.rsi_period)
+        self.buy_price = None
+
+    def next(self):
+        if not self.position:
+            # Buy signal: RSI < oversold level
+            if self.rsi < self.params.rsi_oversold:
+                self.buy()
+                self.buy_price = self.data.close[0]
+        else:
+            current_price = self.data.close[0]
+            if self.buy_price:
+                pnl_pct = (current_price - self.buy_price) / self.buy_price
+                
+                # Sell conditions
+                if (self.rsi > self.params.rsi_overbought or
+                    pnl_pct <= -self.params.stop_loss or
+                    pnl_pct >= self.params.take_profit):
+                    self.sell()
+                    self.buy_price = None
+
+class BuyAndHoldStrategy(bt.Strategy):
+    """กลยุทธ์ Buy and Hold"""
+    def __init__(self):
+        self.bought = False
+
+    def next(self):
+        if not self.bought:
+            self.buy()
+            self.bought = True
+
+def run_backtest(ticker, strategy_name, start_date, end_date, initial_cash=10000, **strategy_params):
+    """รันการทดสอบย้อนหลัง"""
+    try:
+        # ดาวน์โหลดข้อมูล
+        stock = yf.Ticker(ticker)
+        data = stock.history(start=start_date, end=end_date)
+        
+        if data.empty:
+            return None, "ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก"
+        
+        # เตรียม Backtrader
+        cerebro = bt.Cerebro()
+        
+        # เลือกกลยุทธ์
+        if strategy_name == "Moving Average Cross":
+            cerebro.addstrategy(MovingAverageCrossStrategy, **strategy_params)
+        elif strategy_name == "RSI":
+            cerebro.addstrategy(RSIStrategy, **strategy_params)
+        elif strategy_name == "Buy and Hold":
+            cerebro.addstrategy(BuyAndHoldStrategy)
+        
+        # แปลงข้อมูลสำหรับ Backtrader
+        data_bt = bt.feeds.PandasData(dataname=data, fromdate=start_date, todate=end_date)
+        cerebro.adddata(data_bt)
+        
+        # ตั้งค่าเงินเริ่มต้น
+        cerebro.broker.setcash(initial_cash)
+        cerebro.broker.setcommission(commission=0.001)  # 0.1% commission
+        
+        # เพิ่ม analyzers
+        cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="sharpe")
+        cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
+        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
+        cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
+        
+        # รันการทดสอบ
+        start_value = cerebro.broker.getvalue()
+        results = cerebro.run()
+        end_value = cerebro.broker.getvalue()
+        
+        # ดึงผลลัพธ์
+        result = results[0]
+        
+        # คำนวณ metrics
+        total_return = ((end_value - start_value) / start_value) * 100
+        sharpe_ratio = result.analyzers.sharpe.get_analysis().get('sharperatio', 0)
+        max_drawdown = result.analyzers.drawdown.get_analysis().get('max', {}).get('drawdown', 0)
+        
+        trade_analysis = result.analyzers.trades.get_analysis()
+        total_trades = trade_analysis.get('total', {}).get('total', 0)
+        won_trades = trade_analysis.get('won', {}).get('total', 0)
+        win_rate = (won_trades / total_trades * 100) if total_trades > 0 else 0
+        
+        return {
+            'total_return': round(total_return, 2),
+            'sharpe_ratio': round(sharpe_ratio, 2) if sharpe_ratio else 0,
+            'max_drawdown': round(max_drawdown, 2),
+            'total_trades': total_trades,
+            'won_trades': won_trades,
+            'win_rate': round(win_rate, 2),
+            'start_value': round(start_value, 2),
+            'end_value': round(end_value, 2),
+            'cerebro': cerebro,
+            'data': data
+        }, None
+        
+    except Exception as e:
+        return None, f"เกิดข้อผิดพลาด: {str(e)}"
+
+def plot_backtest_results(data, strategy_name, ticker):
+    """สร้างกราฟแสดงผลการ backtest"""
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    
+    # กราฟราคาหุ้น
+    ax1.plot(data.index, data['Close'], label='ราคาปิด', color='blue')
+    ax1.set_title(f'{ticker} - {strategy_name} Backtest Results')
+    ax1.set_ylabel('ราคา')
+    ax1.legend()
+    ax1.grid(True)
+    
+    # กราฟ Volume
+    ax2.bar(data.index, data['Volume'], alpha=0.3, color='gray')
+    ax2.set_ylabel('Volume')
+    ax2.set_xlabel('วันที่')
+    ax2.grid(True)
+    
+    plt.tight_layout()
+    return fig
 
 # ----------------- Buffett 11 Checklist (ละเอียด) -----------------
 def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
@@ -415,7 +584,7 @@ markets = {
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "Backtesting", "คู่มือการใช้งาน"])
 
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
@@ -449,7 +618,179 @@ if menu == "คู่มือการใช้งาน":
 - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
+
+### Backtesting
+- รองรับกลยุทธ์ต่างๆ เช่น Moving Average Cross, RSI, Buy and Hold
+- แสดงผลการวิเคราะห์ Sharpe Ratio, Maximum Drawdown, Win Rate
+- สามารถตั้งค่า Stop Loss และ Take Profit ได้
 """)
+    st.stop()
+
+elif menu == "Backtesting":
+    st.header("🔍 Backtesting - ทดสอบกลยุทธ์การลงทุน")
+    st.markdown("ทดสอบกลยุทธ์การลงทุนของคุณกับข้อมูลในอดีต")
+    
+    # Input section
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Market selection for backtesting
+        selected_market_bt = st.selectbox(
+            "เลือกตลาดหุ้น (Backtesting)",
+            options=list(markets.keys()),
+            index=0,
+            help="เลือกตลาดหุ้นที่ต้องการทดสอบ"
+        )
+        
+        available_tickers_bt = markets[selected_market_bt]
+        
+        # Single ticker selection for backtesting
+        ticker_bt = st.selectbox(
+            f"เลือกหุ้น ({selected_market_bt})",
+            available_tickers_bt,
+            help="เลือกหุ้นที่ต้องการทดสอบกลยุทธ์"
+        )
+        
+        # Strategy selection
+        strategy_name = st.selectbox(
+            "เลือกกลยุทธ์",
+            ["Moving Average Cross", "RSI", "Buy and Hold"],
+            help="เลือกกลยุทธ์การลงทุนที่ต้องการทดสอบ"
+        )
+        
+        # Date range
+        col_start, col_end = st.columns(2)
+        with col_start:
+            start_date = st.date_input(
+                "วันที่เริ่มต้น",
+                value=datetime.date.today() - datetime.timedelta(days=365*2),
+                help="วันที่เริ่มต้นการทดสอบ"
+            )
+        with col_end:
+            end_date = st.date_input(
+                "วันที่สิ้นสุด",
+                value=datetime.date.today(),
+                help="วันที่สิ้นสุดการทดสอบ"
+            )
+    
+    with col2:
+        # Strategy parameters
+        st.subheader("ตั้งค่ากลยุทธ์")
+        
+        initial_cash = st.number_input(
+            "เงินทุนเริ่มต้น",
+            min_value=1000.0,
+            max_value=1000000.0,
+            value=10000.0,
+            step=1000.0,
+            help="จำนวนเงินทุนเริ่มต้นสำหรับการทดสอบ"
+        )
+        
+        strategy_params = {}
+        
+        if strategy_name == "Moving Average Cross":
+            strategy_params['fast_period'] = st.slider("Fast MA Period", 5, 50, 10)
+            strategy_params['slow_period'] = st.slider("Slow MA Period", 20, 100, 30)
+            strategy_params['stop_loss'] = st.slider("Stop Loss (%)", 1, 20, 10) / 100
+            strategy_params['take_profit'] = st.slider("Take Profit (%)", 5, 50, 20) / 100
+            
+        elif strategy_name == "RSI":
+            strategy_params['rsi_period'] = st.slider("RSI Period", 10, 30, 14)
+            strategy_params['rsi_oversold'] = st.slider("RSI Oversold Level", 20, 40, 30)
+            strategy_params['rsi_overbought'] = st.slider("RSI Overbought Level", 60, 80, 70)
+            strategy_params['stop_loss'] = st.slider("Stop Loss (%)", 1, 20, 10) / 100
+            strategy_params['take_profit'] = st.slider("Take Profit (%)", 5, 30, 15) / 100
+    
+    # Run backtest button
+    if st.button("🚀 เริ่มทดสอบ Backtest", type="primary"):
+        with st.spinner("กำลังทดสอบกลยุทธ์..."):
+            # Run backtest
+            result, error = run_backtest(
+                ticker=ticker_bt,
+                strategy_name=strategy_name,
+                start_date=start_date,
+                end_date=end_date,
+                initial_cash=initial_cash,
+                **strategy_params
+            )
+            
+            if error:
+                st.error(f"❌ {error}")
+            elif result:
+                st.success("✅ การทดสอบเสร็จสิ้น!")
+                
+                # Display results
+                st.subheader("📊 ผลการทดสอบ")
+                
+                # Metrics in columns
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(
+                        "Total Return",
+                        f"{result['total_return']}%",
+                        delta=f"{result['total_return']}%"
+                    )
+                    st.metric("เงินทุนเริ่มต้น", f"${result['start_value']:,.2f}")
+                
+                with col2:
+                    st.metric(
+                        "Sharpe Ratio",
+                        f"{result['sharpe_ratio']}",
+                        help="อัตราส่วนความเสี่ยงต่อผลตอบแทน"
+                    )
+                    st.metric("เงินทุนสุดท้าย", f"${result['end_value']:,.2f}")
+                
+                with col3:
+                    st.metric(
+                        "Max Drawdown",
+                        f"{result['max_drawdown']}%",
+                        delta=f"-{result['max_drawdown']}%",
+                        help="การลดลงสูงสุดของเงินทุน"
+                    )
+                    st.metric("จำนวนการซื้อขายทั้งหมด", f"{result['total_trades']}")
+                
+                with col4:
+                    st.metric(
+                        "Win Rate",
+                        f"{result['win_rate']}%",
+                        help="อัตราการชนะ"
+                    )
+                    st.metric("การซื้อขายที่ชนะ", f"{result['won_trades']}")
+                
+                # Chart
+                st.subheader("📈 กราฟแสดงผลการทดสอบ")
+                fig = plot_backtest_results(result['data'], strategy_name, ticker_bt)
+                st.pyplot(fig)
+                
+                # Strategy details
+                st.subheader("⚙️ รายละเอียดกลยุทธ์")
+                strategy_info = {
+                    "หุ้น": ticker_bt,
+                    "กลยุทธ์": strategy_name,
+                    "ช่วงเวลาทดสอบ": f"{start_date} ถึง {end_date}",
+                    "เงินทุนเริ่มต้น": f"${initial_cash:,.2f}"
+                }
+                
+                for key, value in strategy_params.items():
+                    if isinstance(value, float) and value < 1:
+                        strategy_info[key] = f"{value*100}%"
+                    else:
+                        strategy_info[key] = value
+                
+                df_strategy = pd.DataFrame(list(strategy_info.items()), columns=['พารามิเตอร์', 'ค่า'])
+                st.dataframe(df_strategy, hide_index=True)
+    
+    # Information about backtesting
+    st.info("""
+    💡 **คำแนะนำการใช้งาน Backtesting:**
+    - เลือกหุ้นและช่วงเวลาที่ต้องการทดสอบ
+    - ปรับแต่งพารามิเตอร์ของกลยุทธ์ตามความเหมาะสม
+    - Sharpe Ratio > 1 ถือว่าดี, > 2 ถือว่าดีเยี่ยม
+    - Max Drawdown ยิ่งต่ำยิ่งดี (ความเสี่ยงต่ำ)
+    - Win Rate > 50% แสดงว่ากลยุทธ์มีประสิทธิภาพ
+    - ผลการทดสอบในอดีตไม่รับประกันผลลัพธ์ในอนาคต
+    """)
     st.stop()
 
 # Market selection
