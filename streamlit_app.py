@@ -4,6 +4,7 @@ import pandas as pd
 import io
 import datetime
 import numpy as np
+import matplotlib.pyplot as plt
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -18,6 +19,48 @@ def human_format(num):
 
 def df_human_format(df):
     return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
+
+def generate_portfolio_weights(tickers):
+    """Generate equal weights for portfolio allocation"""
+    if not tickers:
+        return {}
+    
+    weight = 1.0 / len(tickers)
+    return {ticker: weight for ticker in tickers}
+
+def create_portfolio_pie_chart(tickers, title="การกระจายการลงทุนในพอร์ตโฟลิโอ"):
+    """Create a pie chart showing portfolio allocation"""
+    if not tickers or len(tickers) == 0:
+        return None
+    
+    weights = generate_portfolio_weights(tickers)
+    
+    # Create the pie chart
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Extract data for pie chart
+    labels = list(weights.keys())
+    sizes = [weights[ticker] * 100 for ticker in labels]  # Convert to percentages
+    
+    # Generate colors - use a colormap for consistent colors
+    colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
+    
+    # Create pie chart
+    wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.1f%%', 
+                                      startangle=90, colors=colors,
+                                      textprops={'fontsize': 10})
+    
+    # Enhance the appearance
+    for autotext in autotexts:
+        autotext.set_color('white')
+        autotext.set_fontweight('bold')
+    
+    ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+    
+    # Ensure the pie chart is circular
+    ax.axis('equal')
+    
+    return fig
 
 # ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
 def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
@@ -463,6 +506,30 @@ if st.button("วิเคราะห์"):
                 "เงินปันผลย้อนหลัง 1 ปี": round(total_div,2) if not div.empty and not hist.empty else "N/A",
                 "Yield ย้อนหลัง 1 ปี (%)": round(manual_yield,2) if not div.empty and not hist.empty else "N/A"
             })
+
+    # --- Portfolio Allocation Pie Chart ---
+    if len(tickers) > 0:
+        st.header("📊 การกระจายการลงทุนในพอร์ตโฟลิโอ (Portfolio Allocation)")
+        
+        if len(tickers) == 1:
+            st.info(f"💡 คุณเลือกหุ้นเพียงตัวเดียว ({tickers[0]}) - พอร์ตโฟลิโอประกอบด้วยหุ้นนี้ 100%")
+        else:
+            # Create and display pie chart
+            fig = create_portfolio_pie_chart(tickers)
+            if fig:
+                st.pyplot(fig)
+                plt.close(fig)  # Clean up to prevent memory issues
+                
+                # Display portfolio weights as a table
+                weights = generate_portfolio_weights(tickers)
+                st.subheader("📋 สัดส่วนการลงทุน")
+                portfolio_df = pd.DataFrame([
+                    {"หุ้น": ticker, "สัดส่วน (%)": f"{weight * 100:.1f}%", "น้ำหนัก": weight}
+                    for ticker, weight in weights.items()
+                ])
+                st.dataframe(portfolio_df, hide_index=True)
+                
+                st.info("ℹ️ สัดส่วนการลงทุนแบ่งเท่าๆ กันสำหรับทุกหุ้นที่เลือก (Equal Weight Portfolio)")
 
     # --- Export to Excel ---
     if len(export_list) > 0:
