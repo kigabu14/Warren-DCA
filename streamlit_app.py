@@ -5,6 +5,145 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from backtesting import Backtest, Strategy
+
+# ----------------- Backtesting Strategies -----------------
+class MovingAverageCrossover(Strategy):
+    """Moving Average Crossover Strategy with configurable parameters"""
+    
+    # Strategy parameters
+    short_window = 20
+    long_window = 50
+    stop_loss = 0.1  # 10% stop loss
+    take_profit = 0.2  # 20% take profit
+    
+    def init(self):
+        # Calculate moving averages
+        self.short_ma = self.I(lambda x: pd.Series(x).rolling(self.short_window).mean(), self.data.Close)
+        self.long_ma = self.I(lambda x: pd.Series(x).rolling(self.long_window).mean(), self.data.Close)
+    
+    def next(self):
+        # Buy signal: short MA crosses above long MA
+        if (self.short_ma[-1] > self.long_ma[-1] and 
+            self.short_ma[-2] <= self.long_ma[-2] and 
+            not self.position):
+            
+            # Calculate stop loss and take profit levels
+            entry_price = self.data.Close[-1]
+            stop_loss_price = entry_price * (1 - self.stop_loss)
+            take_profit_price = entry_price * (1 + self.take_profit)
+            
+            self.buy(sl=stop_loss_price, tp=take_profit_price)
+        
+        # Sell signal: short MA crosses below long MA
+        elif (self.short_ma[-1] < self.long_ma[-1] and 
+              self.short_ma[-2] >= self.long_ma[-2] and 
+              self.position):
+            self.position.close()
+
+
+class RSIStrategy(Strategy):
+    """RSI-based Strategy with oversold/overbought signals"""
+    
+    rsi_period = 14
+    rsi_oversold = 30
+    rsi_overbought = 70
+    stop_loss = 0.08
+    take_profit = 0.15
+    
+    def init(self):
+        # Calculate RSI
+        self.rsi = self.I(self.calculate_rsi, self.data.Close, self.rsi_period)
+    
+    def calculate_rsi(self, prices, period):
+        """Calculate RSI indicator"""
+        prices = pd.Series(prices)
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    
+    def next(self):
+        # Buy signal: RSI oversold
+        if self.rsi[-1] <= self.rsi_oversold and not self.position:
+            entry_price = self.data.Close[-1]
+            stop_loss_price = entry_price * (1 - self.stop_loss)
+            take_profit_price = entry_price * (1 + self.take_profit)
+            self.buy(sl=stop_loss_price, tp=take_profit_price)
+        
+        # Sell signal: RSI overbought
+        elif self.rsi[-1] >= self.rsi_overbought and self.position:
+            self.position.close()
+
+
+class BuyAndHold(Strategy):
+    """Simple Buy and Hold Strategy"""
+    
+    def init(self):
+        pass
+    
+    def next(self):
+        # Buy on first day and hold
+        if not self.position:
+            self.buy()
+
+
+def run_backtest(data, strategy_class, strategy_params, cash=10000, commission=0.001):
+    """Run backtest with given strategy and parameters"""
+    
+    # Create strategy class with custom parameters
+    class CustomStrategy(strategy_class):
+        pass
+    
+    # Set strategy parameters
+    for param, value in strategy_params.items():
+        setattr(CustomStrategy, param, value)
+    
+    # Run backtest
+    bt = Backtest(data, CustomStrategy, cash=cash, commission=commission)
+    result = bt.run()
+    
+    return result, bt
+
+
+def display_backtest_results(result, strategy_name):
+    """Display backtest results in a nice format"""
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("Total Return", f"{result['Return [%]']:.2f}%")
+        st.metric("Buy & Hold Return", f"{result['Buy & Hold Return [%]']:.2f}%")
+        st.metric("Max Drawdown", f"{result['Max. Drawdown [%]']:.2f}%")
+        st.metric("Volatility", f"{result['Volatility [%]']:.2f}%")
+    
+    with col2:
+        win_rate = result['Win Rate [%]'] if not pd.isna(result['Win Rate [%]']) else 0
+        st.metric("Win Rate", f"{win_rate:.2f}%")
+        st.metric("Total Trades", f"{result['# Trades']}")
+        
+        sharpe = result['Sharpe Ratio'] if not pd.isna(result['Sharpe Ratio']) else 0
+        st.metric("Sharpe Ratio", f"{sharpe:.3f}")
+        
+        sqn = result['SQN'] if not pd.isna(result['SQN']) else 0
+        st.metric("SQN", f"{sqn:.3f}")
+    
+    # Performance summary
+    st.subheader("Performance Summary")
+    performance_data = {
+        'Metric': ['Start', 'End', 'Duration', 'Exposure Time [%]', 'Equity Final [$]', 'Equity Peak [$]'],
+        'Value': [
+            result['Start'],
+            result['End'], 
+            result['Duration'],
+            f"{result['Exposure Time [%]']:.2f}%",
+            f"${result['Equity Final [$]']:.2f}",
+            f"${result['Equity Peak [$]']:.2f}"
+        ]
+    }
+    st.dataframe(pd.DataFrame(performance_data), hide_index=True)
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -384,14 +523,179 @@ all_tickers = us_stocks + set100
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "Backtesting", "คู่มือการใช้งาน"])
 
-if menu == "คู่มือการใช้งาน":
+if menu == "Backtesting":
+    st.header("📈 Strategy Backtesting")
+    st.markdown("Test your investment strategies on historical data to evaluate their performance.")
+    
+    # Strategy selection
+    strategy_options = {
+        "Moving Average Crossover": MovingAverageCrossover,
+        "RSI Strategy": RSIStrategy,
+        "Buy and Hold": BuyAndHold
+    }
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        selected_strategy = st.selectbox("Select Strategy", list(strategy_options.keys()))
+        ticker = st.selectbox("Select Stock", all_tickers, index=all_tickers.index("AAPL") if "AAPL" in all_tickers else 0)
+        backtest_period = st.selectbox("Backtest Period", ["1y", "2y", "5y", "max"], index=2)
+        
+    with col2:
+        initial_cash = st.number_input("Initial Cash ($)", min_value=1000, max_value=1000000, value=10000, step=1000)
+        commission = st.number_input("Commission (%)", min_value=0.0, max_value=1.0, value=0.1, step=0.01) / 100
+    
+    # Strategy-specific parameters
+    st.subheader("Strategy Parameters")
+    strategy_params = {}
+    
+    if selected_strategy == "Moving Average Crossover":
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            strategy_params['short_window'] = st.number_input("Short MA Period", min_value=5, max_value=100, value=20)
+        with col2:
+            strategy_params['long_window'] = st.number_input("Long MA Period", min_value=20, max_value=200, value=50)
+        with col3:
+            strategy_params['stop_loss'] = st.number_input("Stop Loss (%)", min_value=1, max_value=50, value=10) / 100
+        with col4:
+            strategy_params['take_profit'] = st.number_input("Take Profit (%)", min_value=5, max_value=100, value=20) / 100
+            
+    elif selected_strategy == "RSI Strategy":
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            strategy_params['rsi_period'] = st.number_input("RSI Period", min_value=5, max_value=50, value=14)
+        with col2:
+            strategy_params['rsi_oversold'] = st.number_input("Oversold Level", min_value=10, max_value=40, value=30)
+        with col3:
+            strategy_params['rsi_overbought'] = st.number_input("Overbought Level", min_value=60, max_value=90, value=70)
+        with col4:
+            strategy_params['stop_loss'] = st.number_input("Stop Loss (%)", min_value=1, max_value=30, value=8) / 100
+        with col5:
+            strategy_params['take_profit'] = st.number_input("Take Profit (%)", min_value=5, max_value=50, value=15) / 100
+    
+    if st.button("🚀 Run Backtest", type="primary"):
+        with st.spinner("Running backtest..."):
+            try:
+                # Get stock data
+                stock = yf.Ticker(ticker)
+                data = stock.history(period=backtest_period)
+                
+                if data.empty:
+                    st.error("No data available for the selected ticker and period.")
+                else:
+                    # Run backtest
+                    strategy_class = strategy_options[selected_strategy]
+                    result, bt = run_backtest(data, strategy_class, strategy_params, initial_cash, commission)
+                    
+                    # Display results
+                    st.success(f"Backtest completed for {ticker} using {selected_strategy}")
+                    display_backtest_results(result, selected_strategy)
+                    
+                    # Price chart with strategy signals
+                    st.subheader("Price Chart")
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    
+                    # Plot price data
+                    ax.plot(data.index, data['Close'], label='Close Price', alpha=0.7)
+                    
+                    # Add moving averages for MA strategy
+                    if selected_strategy == "Moving Average Crossover":
+                        short_ma = data['Close'].rolling(strategy_params['short_window']).mean()
+                        long_ma = data['Close'].rolling(strategy_params['long_window']).mean()
+                        ax.plot(data.index, short_ma, label=f'MA{strategy_params["short_window"]}', alpha=0.8)
+                        ax.plot(data.index, long_ma, label=f'MA{strategy_params["long_window"]}', alpha=0.8)
+                    
+                    ax.set_title(f'{ticker} - {selected_strategy} Backtest')
+                    ax.set_xlabel('Date')
+                    ax.set_ylabel('Price ($)')
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
+                    
+                    st.pyplot(fig)
+                    
+                    # Portfolio value chart (if available)
+                    try:
+                        # This would require accessing the backtest equity curve
+                        # For now, we'll show the buy and hold comparison
+                        st.subheader("Strategy vs Buy & Hold Comparison")
+                        
+                        comparison_data = {
+                            'Strategy': [selected_strategy, 'Buy & Hold'],
+                            'Return (%)': [result['Return [%]'], result['Buy & Hold Return [%]']],
+                            'Max Drawdown (%)': [result['Max. Drawdown [%]'], 'N/A'],
+                            'Volatility (%)': [result['Volatility [%]'], 'N/A'],
+                            'Sharpe Ratio': [result['Sharpe Ratio'] if not pd.isna(result['Sharpe Ratio']) else 0, 'N/A']
+                        }
+                        
+                        comparison_df = pd.DataFrame(comparison_data)
+                        st.dataframe(comparison_df, hide_index=True)
+                        
+                    except Exception as e:
+                        st.info("Portfolio equity curve visualization not available in this version.")
+                    
+                    # Export results
+                    if st.button("📊 Export Results"):
+                        export_data = {
+                            'Ticker': ticker,
+                            'Strategy': selected_strategy,
+                            'Period': backtest_period,
+                            'Initial Cash': initial_cash,
+                            'Commission (%)': commission * 100,
+                            'Total Return (%)': result['Return [%]'],
+                            'Buy & Hold Return (%)': result['Buy & Hold Return [%]'],
+                            'Max Drawdown (%)': result['Max. Drawdown [%]'],
+                            'Win Rate (%)': result['Win Rate [%]'] if not pd.isna(result['Win Rate [%]']) else 0,
+                            'Total Trades': result['# Trades'],
+                            'Sharpe Ratio': result['Sharpe Ratio'] if not pd.isna(result['Sharpe Ratio']) else 0,
+                            **strategy_params
+                        }
+                        
+                        export_df = pd.DataFrame([export_data])
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            export_df.to_excel(writer, index=False, sheet_name='Backtest_Results')
+                        
+                        st.download_button(
+                            label="📥 Download Backtest Results",
+                            data=output.getvalue(),
+                            file_name=f'Backtest_{ticker}_{selected_strategy}_{backtest_period}.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                        )
+                        
+            except Exception as e:
+                st.error(f"Error running backtest: {str(e)}")
+                st.info("This might be due to insufficient data or network connectivity issues.")
+
+elif menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
 **Warren-DCA คืออะไร?**  
-โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี  
+โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี นอกจากนี้ยังมีระบบ Backtesting เพื่อทดสอบกลยุทธ์การลงทุนบนข้อมูลในอดีต  
 **แหล่งข้อมูล:** Yahoo Finance
+
+### ฟีเจอร์หลัก
+1. **วิเคราะห์หุ้น**: วิเคราะห์ตาม Buffett Checklist พร้อม DCA simulation
+2. **Backtesting**: ทดสอบกลยุทธ์การลงทุนบนข้อมูลในอดีต  
+3. **คู่มือการใช้งาน**: เอกสารแนะนำการใช้งาน
+
+### Strategy Backtesting
+**กลยุทธ์ที่รองรับ:**
+- **Moving Average Crossover**: ซื้อเมื่อ MA ระยะสั้นตัดขึ้น MA ระยะยาว
+- **RSI Strategy**: ซื้อเมื่อ RSI ต่ำ (oversold) ขายเมื่อ RSI สูง (overbought)  
+- **Buy and Hold**: ซื้อครั้งเดียวแล้วถือไว้
+
+**การตั้งค่า:**
+- กำหนดเงินทุนเริ่มต้น และค่าคอมมิชชั่น
+- ปรับพารามิเตอร์ของกลยุทธ์ (เช่น ช่วง MA, Stop Loss, Take Profit)
+- เลือกช่วงเวลาสำหรับทดสอบ (1y, 2y, 5y, max)
+
+**ผลลัพธ์ที่ได้:**
+- Total Return, Win Rate, Max Drawdown
+- Sharpe Ratio, Volatility
+- เปรียบเทียบกับ Buy & Hold
+- กราฟแสดงผลการลงทุน
 
 ### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
 1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
@@ -420,11 +724,14 @@ if menu == "คู่มือการใช้งาน":
 """)
     st.stop()
 
-tickers = st.multiselect(
-    "เลือกหุ้น (US & SET100)",
-    all_tickers,
-    default=["AAPL", "PTT.BK"]
-)
+elif menu == "วิเคราะห์หุ้น":
+    st.header("📊 Warren-DCA Stock Analysis")
+    
+    tickers = st.multiselect(
+        "เลือกหุ้น (US & SET100)",
+        all_tickers,
+        default=["AAPL", "PTT.BK"]
+    )
 period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
 monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
