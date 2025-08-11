@@ -45,15 +45,10 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
     # คำนวณเงินปันผลรวมที่ได้รับตามจำนวนหุ้นที่ถือในแต่ละเดือน
     total_div = 0
     if div is not None and not div.empty:
-        # ปรับการคำนวณ: ถือหุ้นตามยอดสะสมแต่ละเดือน ถ้าอยากละเอียดให้ sum ตาม ex-d[...]
         div_period = div[div.index >= prices.index[0]]
-        # สมมติเงินปันผลจ่ายต่อหุ้นตามยอดสะสมในแต่ละเดือน
         if not div_period.empty:
-            total_div = 0
-            # จำลองถือหุ้นสะสมในแต่ละเดือน
             cum_units = units.cumsum()
             for i, dt in enumerate(prices.index):
-                # หาเงินปันผลที่จ่ายในเดือนนั้น
                 div_in_month = div_period[(div_period.index.month == dt.month) & (div_period.index.year == dt.year)].sum()
                 if div_in_month > 0:
                     total_div += div_in_month * cum_units.iloc[i]
@@ -67,235 +62,293 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
         "ราคาปิดล่าสุด": round(latest_price, 2),
         "เงินปันผลรวม": round(total_div, 2)
     }
-# ----------------- Buffett 11 Checklist (ละเอียดแบบ parameters.py) -----------------
+
+# ----------------- Buffett 11 Checklist (ละเอียด) -----------------
 def buffett_11_checks_detail(financials, balance_sheet, cashflow, dividends, hist_prices):
     results = []
     score = 0
     evaluated = 0
 
+    # 1.1 Inventory & Net Income growth
     try:
         inv = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Inventor",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Inventor", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 inv.append(v.iloc[0])
-        inv_growth = all([inv[i] < inv[i+1] for i in range(len(inv)-1)]) if len(inv)>=2 else True
+        inv_growth = all([inv[i] < inv[i+1] for i in range(len(inv)-1)]) if len(inv) >= 2 else True
+
         ni = []
         for col in financials.columns:
-            v = financials.loc[financials.index.str.contains("Net Income",case=False), col]
+            v = financials.loc[financials.index.str.contains("Net Income", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ni.append(v.iloc[0])
-        ni_growth = all([ni[i] < ni[i+1] for i in range(len(ni)-1)]) if len(ni)>=2 else True
+        ni_growth = all([ni[i] < ni[i+1] for i in range(len(ni)-1)]) if len(ni) >= 2 else True
         res = 1 if inv_growth and ni_growth else 0
     except:
         res = -1
-    results.append({'title':'1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง','result':res,'desc':'Inventory และ Net Income ต้องโตต่อเน�[...]
-    if res != -1: score += res; evaluated += 1
+    results.append({
+        'title': '1.1 Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง',
+        'result': res,
+        'desc': 'Inventory และ Net Income ต้องโตต่อเนื่อง'
+    })
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 1.2 No R&D
     try:
-        r_and_d = any(financials.index.str.contains('Research',case=False))
+        r_and_d = any(financials.index.str.contains('Research', case=False))
         res = 0 if r_and_d else 1
     except:
         res = -1
-    results.append({'title':'1.2 ไม่มี Research & Development','result':res,'desc':'ไม่มีค่าใช้จ่าย R&D'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '1.2 ไม่มี Research & Development', 'result': res, 'desc': 'ไม่มีค่าใช้จ่าย R&D'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 2 EBITDA > Current Liabilities every year
     try:
         ebitda = []
         cl = []
         for col in financials.columns:
-            v = financials.loc[financials.index.str.contains("EBITDA",case=False), col]
+            v = financials.loc[financials.index.str.contains("EBITDA", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ebitda.append(v.iloc[0])
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Current Liab",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Current Liab", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 cl.append(v.iloc[0])
-        res = 1 if all([ebitda[i] > cl[i] for i in range(min(len(ebitda),len(cl)))]) and len(ebitda)>0 else 0
+        res = 1 if all([ebitda[i] > cl[i] for i in range(min(len(ebitda), len(cl)))]) and len(ebitda) > 0 else 0
     except:
         res = -1
-    results.append({'title':'2. EBITDA > Current Liabilities ทุกปี','result':res,'desc':'EBITDA มากกว่าหนี้สินหมุนเวียนทุกปี'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '2. EBITDA > Current Liabilities ทุกปี', 'result': res, 'desc': 'EBITDA มากกว่าหนี้สินหมุนเวียนทุกปี'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 3 PPE increasing (no spike)
     try:
         ppe = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Property, Plant",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Property, Plant", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ppe.append(v.iloc[0])
         if len(ppe) >= 2:
             growth = all([ppe[i] <= ppe[i+1] for i in range(len(ppe)-1)])
-            spike = max([abs(ppe[i+1]-ppe[i])/ppe[i] if ppe[i]!=0 else 0 for i in range(len(ppe)-1)]) < 1.0
+            spike = max([abs(ppe[i+1]-ppe[i]) / ppe[i] if ppe[i] != 0 else 0 for i in range(len(ppe)-1)]) < 1.0
             res = 1 if growth and spike else 0
         else:
             res = -1
     except:
         res = -1
-    results.append({'title':'3. PPE เพิ่มขึ้น (ไม่มี spike)','result':res,'desc':'Property, Plant & Equipment โตต่อเนื่อง'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '3. PPE เพิ่มขึ้น (ไม่มี spike)', 'result': res, 'desc': 'Property, Plant & Equipment โตต่อเนื่อง'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 4.1 RTA >= 11%
     try:
         ebitda = []
         ta = []
         for col in financials.columns:
-            v = financials.loc[financials.index.str.contains("EBITDA",case=False), col]
+            v = financials.loc[financials.index.str.contains("EBITDA", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ebitda.append(v.iloc[0])
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Total Assets",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Total Assets", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ta.append(v.iloc[0])
-        rtas = [ebitda[i]/ta[i] for i in range(min(len(ebitda),len(ta))) if ta[i]!=0]
-        avg_rta = sum(rtas)/len(rtas) if rtas else 0
+        rtas = [ebitda[i] / ta[i] for i in range(min(len(ebitda), len(ta))) if ta[i] != 0]
+        avg_rta = sum(rtas) / len(rtas) if rtas else 0
         res = 1 if avg_rta >= 0.11 else 0
     except:
         res = -1
-    results.append({'title':'4.1 RTA ≥ 11%','result':res,'desc':'Return on Total Assets เฉลี่ย ≥ 11%'})
-    if res != -1: score += res; evaluated += 1
+        avg_rta = 0
+    results.append({'title': '4.1 RTA ≥ 11%', 'result': res, 'desc': 'Return on Total Assets เฉลี่ย ≥ 11%'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 4.2 RTA >= 17%
     try:
         res = 1 if avg_rta >= 0.17 else 0
     except:
         res = -1
-    results.append({'title':'4.2 RTA ≥ 17%','result':res,'desc':'Return on Total Assets เฉลี่ย ≥ 17%'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '4.2 RTA ≥ 17%', 'result': res, 'desc': 'Return on Total Assets เฉลี่ย ≥ 17%'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 5.1 LTD/Total Assets <= 0.5
     try:
         ltd = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Long Term Debt",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Long Term Debt", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ltd.append(v.iloc[0])
-        ratios = [ltd[i]/ta[i] for i in range(min(len(ltd),len(ta))) if ta[i]!=0]
-        avg_ratio = sum(ratios)/len(ratios) if ratios else 1
+        ratios = [ltd[i] / ta[i] for i in range(min(len(ltd), len(ta))) if ta[i] != 0]
+        avg_ratio = sum(ratios) / len(ratios) if ratios else 1
         res = 1 if avg_ratio <= 0.5 else 0
     except:
         res = -1
-    results.append({'title':'5.1 LTD/Total Assets ≤ 0.5','result':res,'desc':'อัตราส่วนหนี้สินระยะยาว ≤ 0.5'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '5.1 LTD/Total Assets ≤ 0.5', 'result': res, 'desc': 'อัตราส่วนหนี้สินระยะยาว ≤ 0.5'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 5.2 LTD can be repaid by EBITDA in <= 4 yrs
     try:
         last_ebitda = ebitda[-1] if ebitda else None
         last_ltd = ltd[-1] if ltd else None
-        if last_ebitda and last_ltd and last_ebitda>0:
-            res = 1 if last_ltd/last_ebitda <= 4 else 0
+        if last_ebitda and last_ltd and last_ebitda > 0:
+            res = 1 if last_ltd / last_ebitda <= 4 else 0
         else:
             res = -1
     except:
         res = -1
-    results.append({'title':'5.2 EBITDA จ่ายหนี้ LTD หมดใน ≤ 4 ปี','result':res,'desc':'EBITDA ล่าสุดชำระหนี้ LTD หมดใน ≤ 4 ป�[...]
-    if res != -1: score += res; evaluated += 1
+    results.append({
+        'title': '5.2 EBITDA จ่ายหนี้ LTD หมดใน ≤ 4 ปี',
+        'result': res,
+        'desc': 'EBITDA ล่าสุดชำระหนี้ระยะยาวหมดภายใน ≤ 4 ปี'
+    })
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 6.1 Negative equity any year?
     try:
         se = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Total Stock",case=False) & balance_sheet.index.str.contains("Equity",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Total Stock", case=False) &
+                                  balance_sheet.index.str.contains("Equity", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 se.append(v.iloc[0])
         neg_se = any([x < 0 for x in se])
-        res = 1 if neg_se else 0
+        res = 1 if neg_se else 0  # If equity negative => flag (pass=1 meaning "Yes, negative"?) - kept original logic
     except:
         res = -1
-    results.append({'title':'6.1 Equity ติดลบในปีใดหรือไม่','result':res,'desc':'ถ้าติดลบ ข้าม 6.2-6.3'})
-    if res != -1: evaluated += 1  # ไม่บวกคะแนน
+        neg_se = False
+    results.append({'title': '6.1 Equity ติดลบในปีใดหรือไม่', 'result': res, 'desc': 'ถ้าติดลบ ข้าม 6.2-6.3'})
+    if res != -1:
+        evaluated += 1  # ไม่บวกคะแนน
 
+    # 6.2 DSER <= 1.0
     try:
         if not neg_se:
             tl = []
             ts = []
             for col in balance_sheet.columns:
-                v = balance_sheet.loc[balance_sheet.index.str.contains("Total Liab",case=False), col]
+                v = balance_sheet.loc[balance_sheet.index.str.contains("Total Liab", case=False), col]
                 if not v.empty and v.iloc[0] is not None:
                     tl.append(v.iloc[0])
-                v = balance_sheet.loc[balance_sheet.index.str.contains("Treasury Stock",case=False), col]
+                v = balance_sheet.loc[balance_sheet.index.str.contains("Treasury Stock", case=False), col]
                 if not v.empty and v.iloc[0] is not None:
                     ts.append(abs(v.iloc[0]))
-            adj_se = [se[i]+(ts[i] if i<len(ts) else 0) for i in range(min(len(se),len(ts)))] if ts else se
-            dser = [tl[i]/adj_se[i] for i in range(min(len(tl),len(adj_se))) if adj_se[i]!=0]
-            avg_dser = sum(dser)/len(dser) if dser else 0
+            adj_se = [se[i] + (ts[i] if i < len(ts) else 0) for i in range(min(len(se), len(ts)))] if ts else se
+            dser = [tl[i] / adj_se[i] for i in range(min(len(tl), len(adj_se))) if adj_se[i] != 0]
+            avg_dser = sum(dser) / len(dser) if dser else 0
             res = 1 if avg_dser <= 1.0 else 0
         else:
             res = -1
+            avg_dser = 0
     except:
         res = -1
-    results.append({'title':'6.2 DSER ≤ 1.0','result':res,'desc':'Debt to Shareholder Equity Ratio ≤ 1.0'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '6.2 DSER ≤ 1.0', 'result': res, 'desc': 'Debt to Shareholder Equity Ratio ≤ 1.0'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 6.3 DSER <= 0.8
     try:
-        res = 1 if not neg_se and avg_dser <= 0.8 else ( -1 if neg_se else 0)
+        res = 1 if not neg_se and avg_dser <= 0.8 else (-1 if neg_se else 0)
     except:
         res = -1
-    results.append({'title':'6.3 DSER ≤ 0.8','result':res,'desc':'Debt to Shareholder Equity Ratio ≤ 0.8'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '6.3 DSER ≤ 0.8', 'result': res, 'desc': 'Debt to Shareholder Equity Ratio ≤ 0.8'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 7 No preferred stock
     try:
-        pref = any(balance_sheet.index.str.contains('Preferred',case=False))
+        pref = any(balance_sheet.index.str.contains('Preferred', case=False))
         res = 0 if pref else 1
     except:
         res = -1
-    results.append({'title':'7. ไม่มี Preferred Stock','result':res,'desc':'ไม่มีหุ้นบุริมสิทธิ'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '7. ไม่มี Preferred Stock', 'result': res, 'desc': 'ไม่มีหุ้นบุริมสิทธิ'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 8.x Retained earnings growth
     try:
         re = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Retained Earnings",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Retained Earnings", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 re.append(v.iloc[0])
-        re_growths = [(re[i+1]-re[i])/re[i] if re[i]!=0 else 0 for i in range(len(re)-1)]
-        avg_re_growth = sum(re_growths)/len(re_growths) if re_growths else 0
-        res = 1 if avg_re_growth >= 0.07 else 0
+        re_growths = [(re[i+1]-re[i]) / re[i] if re[i] != 0 else 0 for i in range(len(re)-1)]
+        avg_re_growth = sum(re_growths) / len(re_growths) if re_growths else 0
+        res1 = 1 if avg_re_growth >= 0.07 else 0
+        res2 = 1 if avg_re_growth >= 0.135 else 0
+        res3 = 1 if avg_re_growth >= 0.17 else 0
     except:
-        res = -1
-    results.append({'title':'8.1 Retained Earnings เติบโต ≥ 7%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 7%'})
-    if res != -1: score += res; evaluated += 1
+        res1 = res2 = res3 = -1
+        avg_re_growth = 0
+    results.append({'title': '8.1 Retained Earnings เติบโต ≥ 7%', 'result': res1, 'desc': 'Retained Earnings เติบโตเฉลี่ย ≥ 7%'})
+    if res1 != -1:
+        score += res1
+        evaluated += 1
+    results.append({'title': '8.2 Retained Earnings เติบโต ≥ 13.5%', 'result': res2, 'desc': 'Retained Earnings เติบโตเฉลี่ย ≥ 13.5%'})
+    if res2 != -1:
+        score += res2
+        evaluated += 1
+    results.append({'title': '8.3 Retained Earnings เติบโต ≥ 17%', 'result': res3, 'desc': 'Retained Earnings เติบโตเฉลี่ย ≥ 17%'})
+    if res3 != -1:
+        score += res3
+        evaluated += 1
 
-    try:
-        res = 1 if avg_re_growth >= 0.135 else 0
-    except:
-        res = -1
-    results.append({'title':'8.2 Retained Earnings เติบโต ≥ 13.5%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 13.5%'})
-    if res != -1: score += res; evaluated += 1
-
-    try:
-        res = 1 if avg_re_growth >= 0.17 else 0
-    except:
-        res = -1
-    results.append({'title':'8.3 Retained Earnings เติบโต ≥ 17%','result':res,'desc':'Retained Earnings เติบโตเฉลี่ย ≥ 17%'})
-    if res != -1: score += res; evaluated += 1
-
+    # 9 Treasury stock exists?
     try:
         ts = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Treasury Stock",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Treasury Stock", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 ts.append(v.iloc[0])
-        res = 1 if any([x!=0 for x in ts]) else 0
+        res = 1 if any([x != 0 for x in ts]) else 0
     except:
         res = -1
-    results.append({'title':'9. มี Treasury Stock','result':res,'desc':'มี Treasury Stock หรือไม่'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '9. มี Treasury Stock', 'result': res, 'desc': 'มี Treasury Stock หรือไม่'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 10 ROE >= 23%
     try:
-        roe = [ebitda[i]/se[i] for i in range(min(len(ebitda),len(se))) if se[i]!=0]
-        avg_roe = sum(roe)/len(roe) if roe else 0
+        roe = [ebitda[i] / se[i] for i in range(min(len(ebitda), len(se))) if se[i] != 0]
+        avg_roe = sum(roe) / len(roe) if roe else 0
         res = 1 if avg_roe >= 0.23 else 0
     except:
         res = -1
-    results.append({'title':'10. ROE ≥ 23%','result':res,'desc':'Return on Shareholders Equity เฉลี่ย ≥ 23%'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '10. ROE ≥ 23%', 'result': res, 'desc': 'Return on Shareholders Equity เฉลี่ย ≥ 23%'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
+    # 11 Goodwill increasing
     try:
         gw = []
         for col in balance_sheet.columns:
-            v = balance_sheet.loc[balance_sheet.index.str.contains("Goodwill",case=False), col]
+            v = balance_sheet.loc[balance_sheet.index.str.contains("Goodwill", case=False), col]
             if not v.empty and v.iloc[0] is not None:
                 gw.append(v.iloc[0])
-        res = 1 if all([gw[i] <= gw[i+1] for i in range(len(gw)-1)]) and len(gw)>=2 else 0
+        res = 1 if all([gw[i] <= gw[i+1] for i in range(len(gw)-1)]) and len(gw) >= 2 else 0
     except:
         res = -1
-    results.append({'title':'11. Goodwill เพิ่มขึ้น','result':res,'desc':'Goodwill โตต่อเนื่อง'})
-    if res != -1: score += res; evaluated += 1
+    results.append({'title': '11. Goodwill เพิ่มขึ้น', 'result': res, 'desc': 'Goodwill โตต่อเนื่อง'})
+    if res != -1:
+        score += res
+        evaluated += 1
 
     score_pct = int(score / evaluated * 100) if evaluated > 0 else 0
     return {'details': results, 'score': score, 'evaluated': evaluated, 'score_pct': score_pct}
@@ -337,33 +390,33 @@ if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
 **Warren-DCA คืออะไร?**  
-โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist) พร้อมจำลองการล��[...]
+โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี  
 **แหล่งข้อมูล:** Yahoo Finance
 
-### กฎ 11 ข้อ (DCA Checklist แบบละเอียด)
-1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง
-2. ไม่มี R&D
-3. EBITDA > Current Liabilities ทุกปี
-4. PPE เพิ่มขึ้น (ไม่มี spike)
-5. RTA ≥ 11%
-6. RTA ≥ 17%
-7. LTD/Total Assets ≤ 0.5
-8. EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี
-9. Equity ติดลบในปีใดหรือไม่
-10. DSER ≤ 1.0
-11. DSER ≤ 0.8
-12. ไม่มี Preferred Stock
-13. Retained Earnings เติบโต ≥ 7%
-14. Retained Earnings เติบโต ≥ 13.5%
-15. Retained Earnings เติบโต ≥ 17%
-16. มี Treasury Stock
-17. ROE ≥ 23%
+### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
+1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
+2. ไม่มี R&D  
+3. EBITDA > Current Liabilities ทุกปี  
+4. PPE เพิ่มขึ้น (ไม่มี spike)  
+5. RTA ≥ 11%  
+6. RTA ≥ 17%  
+7. LTD/Total Assets ≤ 0.5  
+8. EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี  
+9. Equity ติดลบในปีใดหรือไม่  
+10. DSER ≤ 1.0  
+11. DSER ≤ 0.8  
+12. ไม่มี Preferred Stock  
+13. Retained Earnings เติบโต ≥ 7%  
+14. Retained Earnings เติบโต ≥ 13.5%  
+15. Retained Earnings เติบโต ≥ 17%  
+16. มี Treasury Stock  
+17. ROE ≥ 23%  
 18. Goodwill เพิ่มขึ้น
 
 ### หมายเหตุ
-- ข้อมูลหุ้น US จะครบถ้วนมากกว่าหุ้นไทย
-- ถ้าข้อมูลหลักๆ ไม่ครบ บางข้อจะขึ้นว่า N/A
-- ข้อมูลย้อนหลังงบการเงิน 4 ปี (Annual)  
+- ข้อมูลหุ้น US มักครบถ้วนกว่าหุ้นไทย
+- ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
+- ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 """)
     st.stop()
 
@@ -392,8 +445,10 @@ if st.button("วิเคราะห์"):
         hist = stock.history(period=period)
         info = stock.info
 
+        manual_yield = np.nan
+        total_div1y = np.nan
+
         with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
-            # ส่วนข้อมูลราคาหุ้นและปันผลล่าสุด
             st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
 
             # 1. Dividend Yield (% ต่อปี)
@@ -405,7 +460,7 @@ if st.button("วิเคราะห์"):
             if ex_div:
                 try:
                     ex_div_date = datetime.datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
-                except:
+                except Exception:
                     ex_div_date = str(ex_div)
             else:
                 ex_div_date = "N/A"
@@ -429,14 +484,14 @@ if st.button("วิเคราะห์"):
                 st.metric("ราคาปิดล่าสุด", last_close)
                 st.metric("ราคาเปิดล่าสุด", last_open)
 
-            # --------- สรุปปันผลย้อนหลัง 1 ปี (แยกชัดเจน) ---------
+            # --------- สรุปปันผลย้อนหลัง 1 ปี ---------
             st.subheader("ผลตอบแทนเงินปันผลย้อนหลัง 1 ปี (คำนวณจากราคาจริง)")
             if not div.empty and not hist.empty:
                 last_year = hist.index[-1] - pd.DateOffset(years=1)
                 recent_div = div[div.index >= last_year]
                 total_div1y = recent_div.sum()
                 avg_price1y = hist['Close'][hist.index >= last_year].mean()
-                price_base = avg_price1y if avg_price1y and avg_price1y > 0 else hist['Close'].iloc[-1]
+                price_base = avg_price1y if (avg_price1y and avg_price1y > 0) else hist['Close'].iloc[-1]
                 manual_yield = (total_div1y / price_base) * 100 if price_base > 0 else np.nan
 
                 st.markdown(f"""
@@ -457,12 +512,12 @@ if st.button("วิเคราะห์"):
             # ตารางรายละเอียดแต่ละข้อ
             df_detail = pd.DataFrame([
                 {
-                    'ข้อ': i+1,
+                    'ข้อ': i + 1,
                     'รายการ': d['title'],
-                    'ผลลัพธ์': "✅ ผ่าน" if d['result']==1 else ("❌ ไม่ผ่าน" if d['result']==0 else "⚪ N/A"),
+                    'ผลลัพธ์': "✅ ผ่าน" if d['result'] == 1 else ("❌ ไม่ผ่าน" if d['result'] == 0 else "⚪ N/A"),
                     'คำอธิบาย': d['desc']
                 }
-                for i,d in enumerate(detail['details'])
+                for i, d in enumerate(detail['details'])
             ])
             st.dataframe(df_detail, hide_index=True)
 
@@ -500,8 +555,8 @@ if st.button("วิเคราะห์"):
                 "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
                 "กำไร(%)": dca_result["กำไร(%)"],
                 "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
-                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not div.empty and not hist.empty else "N/A",
-                "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not div.empty and not hist.empty else "N/A",
+                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not np.isnan(manual_yield) else "N/A",
+                "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not np.isnan(total_div1y) else "N/A",
                 "Dividend Yield (%)": div_yield_pct,
                 "Ex-Dividend Date": ex_div_date,
                 "52W High": w52_high,
@@ -546,4 +601,4 @@ if st.button("วิเคราะห์"):
     ax.set_title("สัดส่วนเงินลงทุน/กำไร/เงินปันผล")
     st.pyplot(fig)
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett 11 Checklist (ละเอียด) + DCA + ปันผลย้อนหลัง พร้อม�[...]")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
