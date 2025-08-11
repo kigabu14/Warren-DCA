@@ -4,6 +4,3 @@ pandas
 openpyxl
 xlsxwriter
 matplotlib
-pyplot
-datetime
-numpy
