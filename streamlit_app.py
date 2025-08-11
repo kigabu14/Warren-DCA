@@ -593,12 +593,12 @@ if st.button("วิเคราะห์"):
         st.dataframe(pd.DataFrame(results_table))
 
     # --- Pie Chart ---
-    pie_labels = ["เงินลงทุน", "กำไร/ขาดทุน", "เงินปันผล"]
+    pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
     pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
     fig, ax = plt.subplots()
     colors = ['#2196f3', '#4caf50', '#ffc107']
     ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
-    ax.set_title("สัดส่วนเงินลงทุน/กำไร/เงินปันผล")
+    ax.set_title("INVEST/Profit/DivyYield")
     st.pyplot(fig)
 
 st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
