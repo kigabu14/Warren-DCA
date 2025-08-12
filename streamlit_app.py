@@ -5,6 +5,8 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+ import google.generativeai as genai
+
 
 # ----------------- Helper Functions -----------------
 def strip_timezone(df: pd.DataFrame) -> pd.DataFrame:
