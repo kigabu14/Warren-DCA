@@ -566,7 +566,7 @@ def bollinger_bands_strategy(data, period=20, multiplier=2, stop_loss_pct=5, tak
         if position == 0:
             if current_price <= lower_band.iloc[i]:
                 # Buy signal
-                shares_to_buy = int(capital / current_price)
+                shares_to_buy = calculate_shares_to_buy(capital, current_price)
                 if shares_to_buy > 0:
                     purchase_value = shares_to_buy * current_price
                     fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
