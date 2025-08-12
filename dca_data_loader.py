@@ -2,11 +2,13 @@ from future import annotations
 
 import os
 import picklefrom datetime 
-import datetime, timedeltafrom pathlib 
-import Pathfrom typing 
+import datetime, timedelta
+from pathlib import Pathfrom typing 
 import Dict, List, Tuple, Optional
 
-import numpy as npimport pandas as pdimport yfinance as yf
+import numpy as np
+import pandas as pd
+import yfinance as yf
 
 class DCADataLoader:
   """Data loader for DCA (Dollar-Cost Averaging) analysis with caching support.
