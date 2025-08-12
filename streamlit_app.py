@@ -980,7 +980,6 @@ def rsi_strategy(data, rsi_period=14, oversold=30, overbought=70, stop_loss_pct=
                 })
                 
                 position = 0
-                entry_price = 0
         
         # Entry signals
         elif position == 0 and current_rsi < oversold:
