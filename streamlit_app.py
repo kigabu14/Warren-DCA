@@ -1269,6 +1269,13 @@ def create_excel_export(all_results, strategy_key):
                 sheet_name = sanitize_sheet_name(f"{ticker}_{strategy_key}")
                 
                 
+                sheet_name = sanitize_sheet_name(f"{ticker}_{strategy_key}")
+                
+                
+                
+                
+                
+                
                 
                 if result['trades']:
                     trades_df = pd.DataFrame(result['trades'])
