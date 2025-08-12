@@ -343,6 +343,7 @@ def get_stock_data_cached(ticker: str, period: str = "1y") -> Tuple[pd.DataFrame
     return 0, 0, np.nan
 
 def calc_dividend_yield_manual(div, hist):
+    """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
     prices = hist_prices['Close'].resample('M').first().dropna()
