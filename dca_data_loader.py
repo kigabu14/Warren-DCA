@@ -1,7 +1,7 @@
-from future import annotations
+from __future__ import annotations
 
 import os
-import pickle 
+import pickle
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -20,7 +20,7 @@ Responsibilities:
   - คืนข้อมูลที่พร้อมใช้ในงานจำลองกลยุทธ์ DCA
 """
 
- def __init__(self, cache_dir: str = "data/cache") -> None:
+ def __init__(self, cache_dir: str = "data/DATA-cache") -> None:
     """Initialize the loader and ensure cache directory exists."""
     self.cache_dir = Path(cache_dir)
     try:
