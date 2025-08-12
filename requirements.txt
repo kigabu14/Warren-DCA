@@ -1,1 +1,6 @@
-streamlit
+streamlit==1.28.0
+yfinance
+pandas
+openpyxl
+xlsxwriter
+matplotlib
