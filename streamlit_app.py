@@ -3,11 +3,117 @@ import yfinance as yf
 import pandas as pd
 import io
 import datetime
-import numpy as np
-import matplotlib.pyplot as plt
-import google.generativeai as genai
-
-
+@@
+ import numpy as np
+ import matplotlib.pyplot as plt
+ 
+ # ----------------- Helper Functions -----------------
+@@
+ markets = {
+     "US": us_stocks,
+     "SET100": set100,
+     "Europe": european_stocks,
+     "Asia": asian_stocks,
+     "Australia": australian_stocks,
+     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
+ }
+ 
++# ----------------- Gemini AI Integration (Added) -----------------
++try:
++    import google.generativeai as genai
++    GEMINI_AVAILABLE = True
++except ImportError:
++    genai = None
++    GEMINI_AVAILABLE = False
++
++def setup_gemini(api_key: str) -> bool:
++    """Configure Gemini with provided API key."""
++    if not (GEMINI_AVAILABLE and api_key):
++        return False
++    try:
++        genai.configure(api_key=api_key)
++        return True
++    except Exception:
++        return False
++
++def gemini_analyze_company(ticker: str, company_name: str, buffett_detail: dict, dca_result: dict) -> str:
++    """Generate Thai analysis combining Buffett checklist + DCA simulation."""
++    if not GEMINI_AVAILABLE:
++        return "❌ ยังไม่ได้ติดตั้ง google-generativeai (pip install google-generativeai)"
++    try:
++        details = buffett_detail.get('details', [])
++        passed = sum(1 for d in details if d['result'] == 1)
++        failed = sum(1 for d in details if d['result'] == 0)
++        na = sum(1 for d in details if d['result'] == -1)
++        failed_list = [d['title'] for d in details if d['result'] == 0]
++        failed_text = ", ".join(failed_list) if failed_list else "ผ่านทุกข้อ หรือไม่มีข้อไม่ผ่านที่ระบุ"
++        score_pct = buffett_detail.get('score_pct', 0)
++
++        prompt = f"""
++วิเคราะห์หุ้น {ticker} ({company_name}) ภาษาไทยอย่างกระชับและมีโครงสร้าง:
++สรุป Buffett Checklist:
++- ผ่าน {passed} ไม่ผ่าน {failed} ไม่มีข้อมูล {na} คะแนนรวม {score_pct}%
++- ข้อไม่ผ่าน: {failed_text}
++
++สรุป DCA (จำลอง):
++- เงินลงทุนรวม: {dca_result.get('เงินลงทุนรวม')}
++- มูลค่าปัจจุบัน: {dca_result.get('มูลค่าปัจจุบัน')}
++- กำไร/ขาดทุน: {dca_result.get('กำไร/ขาดทุน')} ({dca_result.get('กำไร(%)')}%)
++- เงินปันผลรวม: {dca_result.get('เงินปันผลรวม')}
++- ราคาเฉลี่ยที่ซื้อ: {dca_result.get('ราคาเฉลี่ยที่ซื้อ')}
++- ราคาปิดล่าสุด: {dca_result.get('ราคาปิดล่าสุด')}
++
++ให้ออกผลลัพธ์หัวข้อ:
++1) ภาพรวมธุรกิจ/คุณภาพ (อ้างอิงคะแนน)
++2) จุดเด่น
++3) ความเสี่ยง / ข้อควรระวัง (ให้แปลข้อไม่ผ่านเป็นประเด็น)
++4) มุมมองต่อกลยุทธ์ DCA (ไม่ใช่คำแนะนำ)
++5) สรุปสุดท้าย (Disclaimer ชัดเจนว่าไม่ใช่คำแนะนำลงทุน)
++อย่าเพิ่มข้อมูลที่ไม่มีในชุดตัวเลขนี้ (หลีกเลี่ยงการเดาเชิงปริมาณใหม่)
++"""
++        model = genai.GenerativeModel("gemini-1.5-flash")
++        resp = model.generate_content(prompt)
++        return resp.text or "(ไม่มีข้อความตอบกลับจากโมเดล)"
++    except Exception as e:
++        return f"⚠️ Gemini error: {str(e)[:180]}"
++
+ # ----------------- UI & Main -----------------
+ st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
+ menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+ 
++st.sidebar.markdown("### 🤖 AI (Gemini)")
++use_ai_sidebar = st.sidebar.checkbox("เปิดใช้ Gemini วิเคราะห์รายหุ้น")
++gemini_api_key = None
++ai_ready = False
++if use_ai_sidebar:
++    gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
++    if gemini_api_key:
++        if setup_gemini(gemini_api_key):
++            st.sidebar.success("✅ Gemini พร้อมใช้งาน")
++            ai_ready = True
++        else:
++            st.sidebar.error("เชื่อมต่อ Gemini ไม่สำเร็จ")
++else:
++    ai_ready = False
++
+ if menu == "คู่มือการใช้งาน":
+@@
+             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
+             dca_result = dca_simulation(hist, monthly_invest, div)
+             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
+ 
++            # --- Gemini AI Analyze Button (Added) ---
++            if ai_ready:
++                if st.button(f"🤖 วิเคราะห์ AI: {ticker}", key=f"ai_{ticker}"):
++                    with st.spinner("กำลังให้ Gemini วิเคราะห์..."):
++                        ai_text = gemini_analyze_company(ticker, company_name, detail, dca_result)
++                    st.markdown("### 🤖 ผลวิเคราะห์ AI (Gemini)")
++                    st.markdown(ai_text)
++
+             # สะสมผลรวม
+             total_invest += dca_result["เงินลงทุนรวม"]
+             total_profit += dca_result["กำไร/ขาดทุน"]
+             total_div += dca_result["เงินปันผลรวม"]
 # ----------------- Helper Functions -----------------
 def strip_timezone(df: pd.DataFrame) -> pd.DataFrame:
     """
