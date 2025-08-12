@@ -1264,6 +1264,9 @@ def create_excel_export(all_results, strategy_key):
                 sheet_name = f"{ticker}_{strategy_key}"
                 sheet_name = sheet_name.replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_')
                 sheet_name = sheet_name[:31]  # Excel sheet name limit
+                sheet_name = sanitize_sheet_name(f"{ticker}_{strategy_key}")
+                
+                
                 
                 if result['trades']:
                     trades_df = pd.DataFrame(result['trades'])
