@@ -91,7 +91,18 @@ def bollinger_bands_strategy(
                     'action': 'BUY',
                     'price': current_price,
                     'shares': shares,
-                    'value': shares * current_price
+                entry_price = current_price * (1 + transaction_cost_rate)
+                shares = capital // entry_price  # Use floor division for whole shares
+                total_cost = shares * entry_price
+                position = 1
+                capital = capital - total_cost  # Deduct only the actual cost, leave remainder
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'BUY',
+                    'price': entry_price,
+                    'shares': shares,
+                    'value': total_cost
                 })
             
             # Sell signal: price crosses above upper band OR stop loss/take profit
