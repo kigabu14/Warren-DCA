@@ -413,257 +413,1269 @@ markets = {
     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
 }
 
+# ----------------- BACKTESTING STRATEGIES -----------------
+
+def calculate_bollinger_bands(prices, period=20, multiplier=2):
+    """Calculate Bollinger Bands"""
+    sma = prices.rolling(window=period).mean()
+    std = prices.rolling(window=period).std()
+    upper_band = sma + (std * multiplier)
+    lower_band = sma - (std * multiplier)
+    return sma, upper_band, lower_band
+
+def calculate_rsi(prices, period=14):
+    """Calculate RSI"""
+    delta = prices.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_sma(prices, period):
+    """Calculate Simple Moving Average"""
+    return prices.rolling(window=period).mean()
+
+def apply_transaction_cost(value, transaction_cost_rate):
+    """Apply transaction cost and return fee amount"""
+    fee = abs(value) * transaction_cost_rate / 100
+    return fee
+
+def calc_max_drawdown(equity_curve):
+    """Calculate maximum drawdown"""
+    peak = equity_curve.expanding().max()
+    drawdown = (equity_curve - peak) / peak
+    return drawdown.min() * 100
+
+def calc_cagr(equity_curve, start_date, end_date):
+    """Calculate Compound Annual Growth Rate"""
+    if isinstance(equity_curve, list):
+        equity_curve = pd.Series(equity_curve)
+    
+    if len(equity_curve) < 2:
+        return None
+        
+    years = (end_date - start_date).days / 365.25
+    if years <= 0:
+        return None
+        
+    start_value = equity_curve.iloc[0]
+    end_value = equity_curve.iloc[-1]
+    
+    if start_value <= 0:
+        return None
+        
+    cagr = ((end_value / start_value) ** (1/years) - 1) * 100
+    return cagr
+
+def calc_profit_factor(trades):
+    """Calculate profit factor"""
+    if not trades:
+        return None
+        
+    gross_profit = sum(trade['profit'] for trade in trades if trade.get('profit', 0) > 0)
+    gross_loss = abs(sum(trade['profit'] for trade in trades if trade.get('profit', 0) < 0))
+    
+    if gross_loss == 0:
+        return None if gross_profit == 0 else float('inf')
+    
+    return gross_profit / gross_loss
+
+def calc_win_rate(trades):
+    """Calculate win rate percentage"""
+    if not trades:
+        return 0
+        
+    winning_trades = sum(1 for trade in trades if trade.get('profit', 0) > 0)
+    return (winning_trades / len(trades)) * 100
+
+def calc_average_profit_per_trade(trades):
+    """Calculate average profit per trade percentage"""
+    if not trades:
+        return 0
+        
+    total_profit = sum(trade.get('profit', 0) for trade in trades)
+    return total_profit / len(trades)
+
+def bollinger_bands_strategy(data, period=20, multiplier=2, stop_loss_pct=5, take_profit_pct=10, 
+                           transaction_cost_rate=0.1, initial_capital=10000):
+    """Bollinger Bands Strategy"""
+    if len(data) < period:
+        return {
+            'equity_curve': [initial_capital],
+            'trades': [],
+            'metrics': {},
+            'parameters': {
+                'period': period,
+                'multiplier': multiplier,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': take_profit_pct,
+                'transaction_cost_rate': transaction_cost_rate
+            }
+        }
+    
+    prices = data['Close']
+    sma, upper_band, lower_band = calculate_bollinger_bands(prices, period, multiplier)
+    
+    capital = initial_capital
+    position = 0
+    entry_price = 0
+    trades = []
+    equity_curve = [capital]
+    total_fees = 0
+    
+    for i in range(1, len(data)):
+        current_price = prices.iloc[i]
+        current_date = data.index[i]
+        
+        # Skip if we don't have enough data for Bollinger Bands
+        if pd.isna(lower_band.iloc[i]) or pd.isna(upper_band.iloc[i]):
+            equity_curve.append(capital + (position * current_price))
+            continue
+            
+        # Check for stop loss or take profit
+        if position > 0:
+            profit_pct = (current_price - entry_price) / entry_price * 100
+            
+            if profit_pct <= -stop_loss_pct or profit_pct >= take_profit_pct:
+                # Sell signal
+                sell_value = position * current_price
+                fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+                net_proceeds = sell_value - fee
+                profit = net_proceeds - (position * entry_price)
+                
+                capital = net_proceeds
+                total_fees += fee
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'SELL',
+                    'price': current_price,
+                    'shares': position,
+                    'value': -sell_value,
+                    'fee': fee,
+                    'profit': profit,
+                    'reason': f'Stop Loss' if profit_pct <= -stop_loss_pct else 'Take Profit',
+                    'strategy': 'Bollinger Bands'
+                })
+                
+                position = 0
+                entry_price = 0
+        
+        # Entry signals
+        if position == 0:
+            if current_price <= lower_band.iloc[i]:
+                # Buy signal
+                shares_to_buy = int(capital / current_price)
+                if shares_to_buy > 0:
+                    purchase_value = shares_to_buy * current_price
+                    fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
+                    total_cost = purchase_value + fee
+                    
+                    if total_cost <= capital:
+                        capital -= total_cost
+                        position = shares_to_buy
+                        entry_price = current_price
+                        total_fees += fee
+                        
+                        trades.append({
+                            'date': current_date,
+                            'action': 'BUY',
+                            'price': current_price,
+                            'shares': shares_to_buy,
+                            'value': purchase_value,
+                            'fee': fee,
+                            'profit': 0,
+                            'reason': 'Price below Lower Band',
+                            'strategy': 'Bollinger Bands'
+                        })
+            
+            elif position > 0 and current_price >= upper_band.iloc[i]:
+                # Sell signal
+                sell_value = position * current_price
+                fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+                net_proceeds = sell_value - fee
+                profit = net_proceeds - (position * entry_price)
+                
+                capital = net_proceeds
+                total_fees += fee
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'SELL',
+                    'price': current_price,
+                    'shares': position,
+                    'value': -sell_value,
+                    'fee': fee,
+                    'profit': profit,
+                    'reason': 'Price above Upper Band',
+                    'strategy': 'Bollinger Bands'
+                })
+                
+                position = 0
+                entry_price = 0
+        
+        # Update equity curve
+        current_equity = capital + (position * current_price)
+        equity_curve.append(current_equity)
+    
+    # Close any open position at the end
+    if position > 0:
+        final_price = prices.iloc[-1]
+        sell_value = position * final_price
+        fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+        net_proceeds = sell_value - fee
+        profit = net_proceeds - (position * entry_price)
+        
+        capital = net_proceeds
+        total_fees += fee
+        
+        trades.append({
+            'date': data.index[-1],
+            'action': 'SELL',
+            'price': final_price,
+            'shares': position,
+            'value': -sell_value,
+            'fee': fee,
+            'profit': profit,
+            'reason': 'End of Period',
+            'strategy': 'Bollinger Bands'
+        })
+        
+        equity_curve[-1] = capital
+    
+    # Calculate metrics
+    final_value = equity_curve[-1]
+    net_return_pct = (final_value - initial_capital) / initial_capital * 100
+    max_drawdown_pct = calc_max_drawdown(pd.Series(equity_curve))
+    
+    start_date = data.index[0]
+    end_date = data.index[-1]
+    cagr_pct = calc_cagr(equity_curve, start_date, end_date)
+    
+    num_trades = len([t for t in trades if t['action'] == 'SELL'])
+    win_rate_pct = calc_win_rate([t for t in trades if t['action'] == 'SELL'])
+    avg_profit_per_trade_pct = calc_average_profit_per_trade([t for t in trades if t['action'] == 'SELL'])
+    profit_factor = calc_profit_factor([t for t in trades if t['action'] == 'SELL'])
+    
+    metrics = {
+        'initial_capital': initial_capital,
+        'final_value': final_value,
+        'net_return_pct': net_return_pct,
+        'cagr_pct': cagr_pct,
+        'max_drawdown_pct': max_drawdown_pct,
+        'num_trades': num_trades,
+        'win_rate_pct': win_rate_pct,
+        'avg_profit_per_trade_pct': avg_profit_per_trade_pct,
+        'profit_factor': profit_factor,
+        'total_fees': total_fees
+    }
+    
+    return {
+        'equity_curve': equity_curve,
+        'trades': trades,
+        'metrics': metrics,
+        'parameters': {
+            'period': period,
+            'multiplier': multiplier,
+            'stop_loss_pct': stop_loss_pct,
+            'take_profit_pct': take_profit_pct,
+            'transaction_cost_rate': transaction_cost_rate
+        }
+    }
+
+def ma_crossover_strategy(data, short_period=10, long_period=50, stop_loss_pct=5, 
+                         take_profit_pct=10, transaction_cost_rate=0.1, initial_capital=10000):
+    """Moving Average Crossover Strategy"""
+    if len(data) < long_period:
+        return {
+            'equity_curve': [initial_capital],
+            'trades': [],
+            'metrics': {},
+            'parameters': {
+                'short_period': short_period,
+                'long_period': long_period,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': take_profit_pct,
+                'transaction_cost_rate': transaction_cost_rate
+            }
+        }
+    
+    prices = data['Close']
+    short_ma = calculate_sma(prices, short_period)
+    long_ma = calculate_sma(prices, long_period)
+    
+    capital = initial_capital
+    position = 0
+    entry_price = 0
+    trades = []
+    equity_curve = [capital]
+    total_fees = 0
+    
+    for i in range(1, len(data)):
+        current_price = prices.iloc[i]
+        current_date = data.index[i]
+        
+        # Skip if we don't have enough data for moving averages
+        if pd.isna(short_ma.iloc[i]) or pd.isna(long_ma.iloc[i]):
+            equity_curve.append(capital + (position * current_price))
+            continue
+            
+        # Check for stop loss or take profit
+        if position > 0:
+            profit_pct = (current_price - entry_price) / entry_price * 100
+            
+            if profit_pct <= -stop_loss_pct or profit_pct >= take_profit_pct:
+                # Sell signal
+                sell_value = position * current_price
+                fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+                net_proceeds = sell_value - fee
+                profit = net_proceeds - (position * entry_price)
+                
+                capital = net_proceeds
+                total_fees += fee
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'SELL',
+                    'price': current_price,
+                    'shares': position,
+                    'value': -sell_value,
+                    'fee': fee,
+                    'profit': profit,
+                    'reason': f'Stop Loss' if profit_pct <= -stop_loss_pct else 'Take Profit',
+                    'strategy': 'MA Crossover'
+                })
+                
+                position = 0
+                entry_price = 0
+        
+        # Entry and exit signals
+        if i > 0:  # Need previous values for crossover detection
+            prev_short_ma = short_ma.iloc[i-1]
+            prev_long_ma = long_ma.iloc[i-1]
+            curr_short_ma = short_ma.iloc[i]
+            curr_long_ma = long_ma.iloc[i]
+            
+            # Buy signal: short MA crosses above long MA
+            if position == 0 and prev_short_ma <= prev_long_ma and curr_short_ma > curr_long_ma:
+                shares_to_buy = int(capital / current_price)
+                if shares_to_buy > 0:
+                    purchase_value = shares_to_buy * current_price
+                    fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
+                    total_cost = purchase_value + fee
+                    
+                    if total_cost <= capital:
+                        capital -= total_cost
+                        position = shares_to_buy
+                        entry_price = current_price
+                        total_fees += fee
+                        
+                        trades.append({
+                            'date': current_date,
+                            'action': 'BUY',
+                            'price': current_price,
+                            'shares': shares_to_buy,
+                            'value': purchase_value,
+                            'fee': fee,
+                            'profit': 0,
+                            'reason': 'Short MA crosses above Long MA',
+                            'strategy': 'MA Crossover'
+                        })
+            
+            # Sell signal: short MA crosses below long MA
+            elif position > 0 and prev_short_ma >= prev_long_ma and curr_short_ma < curr_long_ma:
+                sell_value = position * current_price
+                fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+                net_proceeds = sell_value - fee
+                profit = net_proceeds - (position * entry_price)
+                
+                capital = net_proceeds
+                total_fees += fee
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'SELL',
+                    'price': current_price,
+                    'shares': position,
+                    'value': -sell_value,
+                    'fee': fee,
+                    'profit': profit,
+                    'reason': 'Short MA crosses below Long MA',
+                    'strategy': 'MA Crossover'
+                })
+                
+                position = 0
+                entry_price = 0
+        
+        # Update equity curve
+        current_equity = capital + (position * current_price)
+        equity_curve.append(current_equity)
+    
+    # Close any open position at the end
+    if position > 0:
+        final_price = prices.iloc[-1]
+        sell_value = position * final_price
+        fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+        net_proceeds = sell_value - fee
+        profit = net_proceeds - (position * entry_price)
+        
+        capital = net_proceeds
+        total_fees += fee
+        
+        trades.append({
+            'date': data.index[-1],
+            'action': 'SELL',
+            'price': final_price,
+            'shares': position,
+            'value': -sell_value,
+            'fee': fee,
+            'profit': profit,
+            'reason': 'End of Period',
+            'strategy': 'MA Crossover'
+        })
+        
+        equity_curve[-1] = capital
+    
+    # Calculate metrics
+    final_value = equity_curve[-1]
+    net_return_pct = (final_value - initial_capital) / initial_capital * 100
+    max_drawdown_pct = calc_max_drawdown(pd.Series(equity_curve))
+    
+    start_date = data.index[0]
+    end_date = data.index[-1]
+    cagr_pct = calc_cagr(equity_curve, start_date, end_date)
+    
+    num_trades = len([t for t in trades if t['action'] == 'SELL'])
+    win_rate_pct = calc_win_rate([t for t in trades if t['action'] == 'SELL'])
+    avg_profit_per_trade_pct = calc_average_profit_per_trade([t for t in trades if t['action'] == 'SELL'])
+    profit_factor = calc_profit_factor([t for t in trades if t['action'] == 'SELL'])
+    
+    metrics = {
+        'initial_capital': initial_capital,
+        'final_value': final_value,
+        'net_return_pct': net_return_pct,
+        'cagr_pct': cagr_pct,
+        'max_drawdown_pct': max_drawdown_pct,
+        'num_trades': num_trades,
+        'win_rate_pct': win_rate_pct,
+        'avg_profit_per_trade_pct': avg_profit_per_trade_pct,
+        'profit_factor': profit_factor,
+        'total_fees': total_fees
+    }
+    
+    return {
+        'equity_curve': equity_curve,
+        'trades': trades,
+        'metrics': metrics,
+        'parameters': {
+            'short_period': short_period,
+            'long_period': long_period,
+            'stop_loss_pct': stop_loss_pct,
+            'take_profit_pct': take_profit_pct,
+            'transaction_cost_rate': transaction_cost_rate
+        }
+    }
+
+def rsi_strategy(data, rsi_period=14, oversold=30, overbought=70, stop_loss_pct=5, 
+                take_profit_pct=10, transaction_cost_rate=0.1, initial_capital=10000):
+    """RSI Strategy"""
+    if len(data) < rsi_period:
+        return {
+            'equity_curve': [initial_capital],
+            'trades': [],
+            'metrics': {},
+            'parameters': {
+                'rsi_period': rsi_period,
+                'oversold': oversold,
+                'overbought': overbought,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': take_profit_pct,
+                'transaction_cost_rate': transaction_cost_rate
+            }
+        }
+    
+    prices = data['Close']
+    rsi = calculate_rsi(prices, rsi_period)
+    
+    capital = initial_capital
+    position = 0
+    entry_price = 0
+    trades = []
+    equity_curve = [capital]
+    total_fees = 0
+    
+    for i in range(1, len(data)):
+        current_price = prices.iloc[i]
+        current_date = data.index[i]
+        
+        # Skip if we don't have enough data for RSI
+        if pd.isna(rsi.iloc[i]):
+            equity_curve.append(capital + (position * current_price))
+            continue
+            
+        current_rsi = rsi.iloc[i]
+        
+        # Check for stop loss or take profit
+        if position > 0:
+            profit_pct = (current_price - entry_price) / entry_price * 100
+            
+            if profit_pct <= -stop_loss_pct or profit_pct >= take_profit_pct or current_rsi > overbought:
+                # Sell signal
+                sell_value = position * current_price
+                fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+                net_proceeds = sell_value - fee
+                profit = net_proceeds - (position * entry_price)
+                
+                capital = net_proceeds
+                total_fees += fee
+                
+                reason = 'RSI Overbought' if current_rsi > overbought else ('Stop Loss' if profit_pct <= -stop_loss_pct else 'Take Profit')
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'SELL',
+                    'price': current_price,
+                    'shares': position,
+                    'value': -sell_value,
+                    'fee': fee,
+                    'profit': profit,
+                    'reason': reason,
+                    'strategy': 'RSI'
+                })
+                
+                position = 0
+                entry_price = 0
+        
+        # Entry signals
+        elif position == 0 and current_rsi < oversold:
+            # Buy signal
+            shares_to_buy = int(capital / current_price)
+            if shares_to_buy > 0:
+                purchase_value = shares_to_buy * current_price
+                fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
+                total_cost = purchase_value + fee
+                
+                if total_cost <= capital:
+                    capital -= total_cost
+                    position = shares_to_buy
+                    entry_price = current_price
+                    total_fees += fee
+                    
+                    trades.append({
+                        'date': current_date,
+                        'action': 'BUY',
+                        'price': current_price,
+                        'shares': shares_to_buy,
+                        'value': purchase_value,
+                        'fee': fee,
+                        'profit': 0,
+                        'reason': 'RSI Oversold',
+                        'strategy': 'RSI'
+                    })
+        
+        # Update equity curve
+        current_equity = capital + (position * current_price)
+        equity_curve.append(current_equity)
+    
+    # Close any open position at the end
+    if position > 0:
+        final_price = prices.iloc[-1]
+        sell_value = position * final_price
+        fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+        net_proceeds = sell_value - fee
+        profit = net_proceeds - (position * entry_price)
+        
+        capital = net_proceeds
+        total_fees += fee
+        
+        trades.append({
+            'date': data.index[-1],
+            'action': 'SELL',
+            'price': final_price,
+            'shares': position,
+            'value': -sell_value,
+            'fee': fee,
+            'profit': profit,
+            'reason': 'End of Period',
+            'strategy': 'RSI'
+        })
+        
+        equity_curve[-1] = capital
+    
+    # Calculate metrics
+    final_value = equity_curve[-1]
+    net_return_pct = (final_value - initial_capital) / initial_capital * 100
+    max_drawdown_pct = calc_max_drawdown(pd.Series(equity_curve))
+    
+    start_date = data.index[0]
+    end_date = data.index[-1]
+    cagr_pct = calc_cagr(equity_curve, start_date, end_date)
+    
+    num_trades = len([t for t in trades if t['action'] == 'SELL'])
+    win_rate_pct = calc_win_rate([t for t in trades if t['action'] == 'SELL'])
+    avg_profit_per_trade_pct = calc_average_profit_per_trade([t for t in trades if t['action'] == 'SELL'])
+    profit_factor = calc_profit_factor([t for t in trades if t['action'] == 'SELL'])
+    
+    metrics = {
+        'initial_capital': initial_capital,
+        'final_value': final_value,
+        'net_return_pct': net_return_pct,
+        'cagr_pct': cagr_pct,
+        'max_drawdown_pct': max_drawdown_pct,
+        'num_trades': num_trades,
+        'win_rate_pct': win_rate_pct,
+        'avg_profit_per_trade_pct': avg_profit_per_trade_pct,
+        'profit_factor': profit_factor,
+        'total_fees': total_fees
+    }
+    
+    return {
+        'equity_curve': equity_curve,
+        'trades': trades,
+        'metrics': metrics,
+        'parameters': {
+            'rsi_period': rsi_period,
+            'oversold': oversold,
+            'overbought': overbought,
+            'stop_loss_pct': stop_loss_pct,
+            'take_profit_pct': take_profit_pct,
+            'transaction_cost_rate': transaction_cost_rate
+        }
+    }
+
+def buy_and_hold_strategy(data, transaction_cost_rate=0.1, initial_capital=10000,
+                         stop_loss_pct=5, take_profit_pct=10):
+    """Buy and Hold Strategy"""
+    if len(data) < 2:
+        return {
+            'equity_curve': [initial_capital],
+            'trades': [],
+            'metrics': {},
+            'parameters': {
+                'transaction_cost_rate': transaction_cost_rate,
+                'stop_loss_pct': stop_loss_pct,  # Ignored but kept for uniformity
+                'take_profit_pct': take_profit_pct  # Ignored but kept for uniformity
+            }
+        }
+    
+    prices = data['Close']
+    
+    # Buy at first available bar
+    first_price = prices.iloc[0]
+    first_date = data.index[0]
+    
+    shares_to_buy = int(initial_capital / first_price)
+    purchase_value = shares_to_buy * first_price
+    buy_fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
+    total_cost = purchase_value + buy_fee
+    
+    remaining_capital = initial_capital - total_cost
+    
+    trades = [{
+        'date': first_date,
+        'action': 'BUY',
+        'price': first_price,
+        'shares': shares_to_buy,
+        'value': purchase_value,
+        'fee': buy_fee,
+        'profit': 0,
+        'reason': 'Buy and Hold Start',
+        'strategy': 'Buy & Hold'
+    }]
+    
+    # Calculate equity curve
+    equity_curve = []
+    for price in prices:
+        current_equity = remaining_capital + (shares_to_buy * price)
+        equity_curve.append(current_equity)
+    
+    # Sell at last bar
+    final_price = prices.iloc[-1]
+    final_date = data.index[-1]
+    
+    sell_value = shares_to_buy * final_price
+    sell_fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+    net_proceeds = sell_value - sell_fee
+    profit = net_proceeds - purchase_value
+    
+    final_capital = remaining_capital + net_proceeds
+    total_fees = buy_fee + sell_fee
+    
+    trades.append({
+        'date': final_date,
+        'action': 'SELL',
+        'price': final_price,
+        'shares': shares_to_buy,
+        'value': -sell_value,
+        'fee': sell_fee,
+        'profit': profit,
+        'reason': 'Buy and Hold End',
+        'strategy': 'Buy & Hold'
+    })
+    
+    # Update final equity value
+    equity_curve[-1] = final_capital
+    
+    # Calculate metrics
+    final_value = final_capital
+    net_return_pct = (final_value - initial_capital) / initial_capital * 100
+    max_drawdown_pct = calc_max_drawdown(pd.Series(equity_curve))
+    
+    start_date = data.index[0]
+    end_date = data.index[-1]
+    cagr_pct = calc_cagr(equity_curve, start_date, end_date)
+    
+    num_trades = 1  # Only one complete trade cycle
+    win_rate_pct = 100.0 if profit > 0 else 0.0
+    avg_profit_per_trade_pct = profit
+    profit_factor = None  # N/A for single trade
+    
+    metrics = {
+        'initial_capital': initial_capital,
+        'final_value': final_value,
+        'net_return_pct': net_return_pct,
+        'cagr_pct': cagr_pct,
+        'max_drawdown_pct': max_drawdown_pct,
+        'num_trades': num_trades,
+        'win_rate_pct': win_rate_pct,
+        'avg_profit_per_trade_pct': avg_profit_per_trade_pct,
+        'profit_factor': profit_factor,
+        'total_fees': total_fees
+    }
+    
+    return {
+        'equity_curve': equity_curve,
+        'trades': trades,
+        'metrics': metrics,
+        'parameters': {
+            'transaction_cost_rate': transaction_cost_rate,
+            'stop_loss_pct': stop_loss_pct,
+            'take_profit_pct': take_profit_pct
+        }
+    }
+
+# Strategy Registry
+STRATEGIES = {
+    'bollinger_bands': {
+        'display_name': 'Bollinger Bands',
+        'function': bollinger_bands_strategy,
+        'parameters': {
+            'period': {'type': 'number', 'default': 20, 'min': 5, 'max': 50, 'label': 'ช่วงเวลา (Period)'},
+            'multiplier': {'type': 'number', 'default': 2.0, 'min': 1.0, 'max': 3.0, 'step': 0.1, 'label': 'ตัวคูณ (Multiplier)'},
+            'stop_loss_pct': {'type': 'number', 'default': 5.0, 'min': 1.0, 'max': 20.0, 'step': 0.5, 'label': 'Stop Loss (%)'},
+            'take_profit_pct': {'type': 'number', 'default': 10.0, 'min': 1.0, 'max': 50.0, 'step': 0.5, 'label': 'Take Profit (%)'}
+        }
+    },
+    'ma_crossover': {
+        'display_name': 'MA Crossover',
+        'function': ma_crossover_strategy,
+        'parameters': {
+            'short_period': {'type': 'number', 'default': 10, 'min': 5, 'max': 30, 'label': 'MA สั้น (Short Period)'},
+            'long_period': {'type': 'number', 'default': 50, 'min': 20, 'max': 200, 'label': 'MA ยาว (Long Period)'},
+            'stop_loss_pct': {'type': 'number', 'default': 5.0, 'min': 1.0, 'max': 20.0, 'step': 0.5, 'label': 'Stop Loss (%)'},
+            'take_profit_pct': {'type': 'number', 'default': 10.0, 'min': 1.0, 'max': 50.0, 'step': 0.5, 'label': 'Take Profit (%)'}
+        }
+    },
+    'rsi': {
+        'display_name': 'RSI',
+        'function': rsi_strategy,
+        'parameters': {
+            'rsi_period': {'type': 'number', 'default': 14, 'min': 5, 'max': 30, 'label': 'RSI Period'},
+            'oversold': {'type': 'number', 'default': 30, 'min': 10, 'max': 40, 'label': 'Oversold Level'},
+            'overbought': {'type': 'number', 'default': 70, 'min': 60, 'max': 90, 'label': 'Overbought Level'},
+            'stop_loss_pct': {'type': 'number', 'default': 5.0, 'min': 1.0, 'max': 20.0, 'step': 0.5, 'label': 'Stop Loss (%)'},
+            'take_profit_pct': {'type': 'number', 'default': 10.0, 'min': 1.0, 'max': 50.0, 'step': 0.5, 'label': 'Take Profit (%)'}
+        }
+    },
+    'buy_and_hold': {
+        'display_name': 'Buy & Hold',
+        'function': buy_and_hold_strategy,
+        'parameters': {
+            'stop_loss_pct': {'type': 'number', 'default': 5.0, 'min': 1.0, 'max': 20.0, 'step': 0.5, 'label': 'Stop Loss (%) - ไม่ใช้', 'disabled': True},
+            'take_profit_pct': {'type': 'number', 'default': 10.0, 'min': 1.0, 'max': 50.0, 'step': 0.5, 'label': 'Take Profit (%) - ไม่ใช้', 'disabled': True}
+        }
+    }
+}
+
+def create_excel_export(all_results, strategy_key):
+    """Create Excel file with summary and individual ticker sheets"""
+    try:
+        output = io.BytesIO()
+        
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Summary sheet
+            summary_data = []
+            for ticker, result in all_results.items():
+                metrics = result['metrics']
+                summary_data.append({
+                    'Ticker': ticker,
+                    'Strategy': strategy_key,
+                    'Initial Capital': metrics.get('initial_capital', 0),
+                    'Final Value': metrics.get('final_value', 0),
+                    'Net Return (%)': metrics.get('net_return_pct', 0),
+                    'CAGR (%)': metrics.get('cagr_pct', 0) if metrics.get('cagr_pct') else 0,
+                    'Max Drawdown (%)': metrics.get('max_drawdown_pct', 0),
+                    'Number of Trades': metrics.get('num_trades', 0),
+                    'Win Rate (%)': metrics.get('win_rate_pct', 0),
+                    'Avg Profit per Trade': metrics.get('avg_profit_per_trade_pct', 0),
+                    'Profit Factor': metrics.get('profit_factor', 0) if metrics.get('profit_factor') else 0,
+                    'Total Fees': metrics.get('total_fees', 0)
+                })
+            
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Individual ticker sheets
+            for ticker, result in all_results.items():
+                # Clean sheet name - remove invalid characters and limit length
+                sheet_name = f"{ticker}_{strategy_key}"
+                sheet_name = sheet_name.replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_')
+                sheet_name = sheet_name[:31]  # Excel sheet name limit
+                
+                if result['trades']:
+                    trades_df = pd.DataFrame(result['trades'])
+                    trades_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        return output.getvalue()
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการสร้างไฟล์ Excel: {str(e)}")
+        return None
+
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
 
-if menu == "คู่มือการใช้งาน":
-    st.header("คู่มือการใช้งาน (ภาษาไทย)")
+# Add version display
+st.sidebar.markdown("**เวอร์ชัน:** v0.2.0")
+
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "Backtesting", "คู่มือการใช้งาน"])
+
+if menu == "Backtesting":
+    st.header("🚀 Backtesting ระบบ")
+    st.markdown("ทดสอบกลยุทธ์การลงทุนต่างๆ กับข้อมูลในอดีต")
+    
+    # Strategy selection
+    selected_strategy_key = st.selectbox(
+        "เลือกกลยุทธ์",
+        options=list(STRATEGIES.keys()),
+        format_func=lambda x: STRATEGIES[x]['display_name'],
+        help="เลือกกลยุทธ์ที่ต้องการทดสอบ"
+    )
+    
+    selected_strategy = STRATEGIES[selected_strategy_key]
+    
+    # Market and ticker selection (reuse existing logic)
+    selected_market = st.selectbox(
+        "เลือกตลาดหุ้น",
+        options=list(markets.keys()),
+        index=0,
+        help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์"
+    )
+    
+    available_tickers = markets[selected_market]
+    
+    default_tickers = []
+    if selected_market == "US":
+        default_tickers = ["AAPL"]
+    elif selected_market == "SET100":
+        default_tickers = ["PTT.BK"]
+    elif selected_market == "Global":
+        default_tickers = ["AAPL", "PTT.BK"]
+    else:
+        default_tickers = [available_tickers[0]] if available_tickers else []
+    
+    tickers = st.multiselect(
+        f"เลือกหุ้น ({selected_market})",
+        available_tickers,
+        default=default_tickers,
+        help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการทดสอบ (สามารถเลือกหลายตัว)"
+    )
+    
+    # Common parameters
+    col1, col2 = st.columns(2)
+    with col1:
+        initial_capital = st.number_input(
+            "เงินทุนเริ่มต้น", 
+            min_value=1000.0, 
+            max_value=1000000.0, 
+            value=10000.0, 
+            step=1000.0
+        )
+        
+    with col2:
+        transaction_cost_rate = st.number_input(
+            "ค่าธรรมเนียมการซื้อขาย (%)", 
+            min_value=0.0, 
+            max_value=5.0, 
+            value=0.1, 
+            step=0.01,
+            help="ค่าธรรมเนียมที่จะถูกหักทั้งการซื้อและขาย"
+        )
+    
+    # Strategy-specific parameters
+    st.subheader(f"พารามิเตอร์สำหรับ {selected_strategy['display_name']}")
+    strategy_params = {}
+    
+    if selected_strategy_key == 'buy_and_hold':
+        st.info("📌 กลยุทธ์ Buy & Hold จะซื้อหุ้นในวันแรกและขายในวันสุดท้าย พารามิเตอร์ Stop Loss และ Take Profit จะไม่ถูกใช้งาน")
+    
+    # Create parameter inputs based on strategy configuration
+    param_cols = st.columns(2)
+    for i, (param_name, param_config) in enumerate(selected_strategy['parameters'].items()):
+        with param_cols[i % 2]:
+            if param_config['type'] == 'number':
+                disabled = param_config.get('disabled', False)
+                if disabled:
+                    st.number_input(
+                        param_config['label'],
+                        value=param_config['default'],
+                        disabled=True,
+                        help="พารามิเตอร์นี้ไม่ถูกใช้งานในกลยุทธ์ Buy & Hold"
+                    )
+                    strategy_params[param_name] = param_config['default']
+                else:
+                    strategy_params[param_name] = st.number_input(
+                        param_config['label'],
+                        min_value=param_config.get('min', 0),
+                        max_value=param_config.get('max', 100),
+                        value=param_config['default'],
+                        step=param_config.get('step', 1)
+                    )
+    
+    # Date range selection
+    period = st.selectbox("เลือกช่วงเวลาทดสอบ", ["1y", "2y", "5y", "max"], index=2)
+    
+    # Run backtest button
+    if st.button("🚀 เริ่มทดสอบ", type="primary"):
+        if not tickers:
+            st.error("กรุณาเลือกหุ้นที่ต้องการทดสอบ")
+        else:
+            # Progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            results_summary = []
+            all_results = {}
+            
+            for idx, ticker in enumerate(tickers):
+                status_text.text(f"กำลังทดสอบ {ticker}...")
+                progress_bar.progress((idx + 1) / len(tickers))
+                
+                try:
+                    # Get stock data
+                    stock = yf.Ticker(ticker)
+                    hist = stock.history(period=period)
+                    
+                    if hist.empty:
+                        st.warning(f"ไม่สามารถดึงข้อมูลสำหรับ {ticker}")
+                        continue
+                    
+                    # Run strategy
+                    strategy_params['transaction_cost_rate'] = transaction_cost_rate
+                    strategy_params['initial_capital'] = initial_capital
+                    
+                    result = selected_strategy['function'](hist, **strategy_params)
+                    all_results[ticker] = result
+                    
+                    # Add to summary
+                    metrics = result['metrics']
+                    results_summary.append({
+                        'หุ้น': ticker,
+                        'เงินทุนเริ่มต้น': f"{metrics.get('initial_capital', 0):,.2f}",
+                        'มูลค่าสุดท้าย': f"{metrics.get('final_value', 0):,.2f}",
+                        'ผลตอบแทน (%)': f"{metrics.get('net_return_pct', 0):.2f}%",
+                        'CAGR (%)': f"{metrics.get('cagr_pct', 0):.2f}%" if metrics.get('cagr_pct') else "N/A",
+                        'Max Drawdown (%)': f"{metrics.get('max_drawdown_pct', 0):.2f}%",
+                        'จำนวนเทรด': metrics.get('num_trades', 0),
+                        'อัตราชนะ (%)': f"{metrics.get('win_rate_pct', 0):.2f}%",
+                        'กำไรเฉลี่ยต่อเทรด': f"{metrics.get('avg_profit_per_trade_pct', 0):.2f}",
+                        'Profit Factor': f"{metrics.get('profit_factor', 0):.2f}" if metrics.get('profit_factor') else "N/A",
+                        'ค่าธรรมเนียมรวม': f"{metrics.get('total_fees', 0):.2f}"
+                    })
+                    
+                except Exception as e:
+                    st.error(f"เกิดข้อผิดพลาดกับ {ticker}: {str(e)}")
+            
+            progress_bar.empty()
+            status_text.empty()
+            
+            if results_summary:
+                # Display summary table
+                st.subheader("📊 สรุปผลการทดสอบ")
+                summary_df = pd.DataFrame(results_summary)
+                st.dataframe(summary_df, use_container_width=True)
+                
+                # Excel export
+                if len(all_results) > 0:
+                    excel_data = create_excel_export(all_results, selected_strategy_key)
+                    if excel_data:
+                        st.download_button(
+                            label="📥 ดาวน์โหลดผลลัพธ์เป็น Excel",
+                            data=excel_data,
+                            file_name=f'Backtest_Results_{selected_strategy_key}.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                        )
+                
+                # Individual ticker results
+                for ticker, result in all_results.items():
+                    with st.expander(f"📈 รายละเอียด {ticker} - {selected_strategy['display_name']}", expanded=False):
+                        
+                        # Metrics
+                        st.subheader("ตัวชี้วัดผลการดำเนินงาน")
+                        metrics = result['metrics']
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("เงินทุนเริ่มต้น", f"{metrics.get('initial_capital', 0):,.2f}")
+                            st.metric("มูลค่าสุดท้าย", f"{metrics.get('final_value', 0):,.2f}")
+                        with col2:
+                            st.metric("ผลตอบแทน (%)", f"{metrics.get('net_return_pct', 0):.2f}%")
+                            st.metric("CAGR (%)", f"{metrics.get('cagr_pct', 0):.2f}%" if metrics.get('cagr_pct') else "N/A")
+                        with col3:
+                            st.metric("Max Drawdown (%)", f"{metrics.get('max_drawdown_pct', 0):.2f}%")
+                            st.metric("จำนวนเทรด", metrics.get('num_trades', 0))
+                        with col4:
+                            st.metric("อัตราชนะ (%)", f"{metrics.get('win_rate_pct', 0):.2f}%")
+                            st.metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}" if metrics.get('profit_factor') else "N/A")
+                        
+                        # Equity curve chart
+                        st.subheader("เส้นกราฟมูลค่าพอร์ต")
+                        equity_df = pd.DataFrame({
+                            'Equity': result['equity_curve']
+                        })
+                        st.line_chart(equity_df)
+                        
+                        # Drawdown chart (optional)
+                        if len(result['equity_curve']) > 1:
+                            equity_series = pd.Series(result['equity_curve'])
+                            peak = equity_series.expanding().max()
+                            drawdown = (equity_series - peak) / peak * 100
+                            
+                            st.subheader("กราฟ Drawdown")
+                            drawdown_df = pd.DataFrame({
+                                'Drawdown (%)': drawdown
+                            })
+                            st.line_chart(drawdown_df)
+                        
+                        # Trades table
+                        if result['trades']:
+                            st.subheader("ตารางธุรกรรม")
+                            trades_df = pd.DataFrame(result['trades'])
+                            trades_df['date'] = trades_df['date'].dt.strftime('%Y-%m-%d')
+                            st.dataframe(trades_df, use_container_width=True)
+                        else:
+                            st.info("ไม่มีธุรกรรมในช่วงเวลานี้")
+
+elif menu == "คู่มือการใช้งาน":
+    st.header("📚 คู่มือการใช้งาน (ภาษาไทย)")
+    st.markdown("---")
+    
+    # Version display
+    st.markdown("**เวอร์ชัน:** v0.2.0")
+    st.markdown("---")
+    
+    # 1. ภาพรวมระบบ
+    st.subheader("1. 📋 ภาพรวมระบบ")
     st.markdown("""
-**Warren-DCA คืออะไร?**  
-โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี  
-**แหล่งข้อมูล:** Yahoo Finance
+    **Warren-DCA** เป็นระบบวิเคราะห์หุ้นแบบครบวงจร ประกอบด้วย 3 ส่วนหลัก:
+    
+    - **วิเคราะห์หุ้น:** ตรวจสอบหุ้นตามหลัก Warren Buffett (18 เงื่อนไข) + จำลอง DCA
+    - **Backtesting:** ทดสอบกลยุทธ์การลงทุนต่างๆ กับข้อมูลย้อนหลัง
+    - **คู่มือการใช้งาน:** เอกสารประกอบการใช้งาน
+    
+    **แหล่งข้อมูล:** Yahoo Finance
+    """)
+    
+    # 2. ขั้นตอนการใช้งาน
+    st.subheader("2. 🛠️ ขั้นตอนการใช้งาน")
+    
+    tab1, tab2 = st.tabs(["📊 วิเคราะห์หุ้น", "🚀 Backtesting"])
+    
+    with tab1:
+        st.markdown("""
+        **ขั้นตอนการวิเคราะห์หุ้น:**
+        1. เลือกตลาดหุ้น (US, SET100, Europe, Asia, Australia, Global)
+        2. เลือกหุ้นที่ต้องการวิเคราะห์ (สามารถเลือกหลายตัว)
+        3. ตั้งค่าช่วงเวลาราคาหุ้น (1y, 5y, max)
+        4. ระบุจำนวนเงินลงทุน DCA ต่อเดือน
+        5. คลิก "วิเคราะห์"
+        6. ดูผลลัพธ์และดาวน์โหลด Excel
+        """)
+    
+    with tab2:
+        st.markdown("""
+        **ขั้นตอนการ Backtesting:**
+        1. เลือกกลยุทธ์ที่ต้องการทดสอบ
+        2. เลือกตลาดหุ้นและหุ้นที่ต้องการ
+        3. ตั้งค่าเงินทุนเริ่มต้นและค่าธรรมเนียม
+        4. ปรับพารามิเตอร์ของกลยุทธ์
+        5. เลือกช่วงเวลาทดสอบ
+        6. คลิก "เริ่มทดสอบ"
+        7. ดูผลลัพธ์และดาวน์โหลด Excel
+        """)
+    
+    # 3. กลยุทธ์ที่มี
+    st.subheader("3. 🎯 กลยุทธ์ที่มี")
+    
+    strategy_tabs = st.tabs(["📈 Bollinger Bands", "↗️ MA Crossover", "📊 RSI", "🏦 Buy & Hold"])
+    
+    with strategy_tabs[0]:
+        st.markdown("""
+        **Bollinger Bands Strategy**
+        
+        **หลักการ:**
+        - ซื้อเมื่อราคาแตะแถบล่าง (Lower Band)
+        - ขายเมื่อราคาแตะแถบบน (Upper Band)
+        - มี Stop Loss และ Take Profit เพิ่มเติม
+        
+        **พารามิเตอร์:**
+        - **ช่วงเวลา (Period):** 20 วัน (ค่าเริ่มต้น)
+        - **ตัวคูณ (Multiplier):** 2.0 (ค่าเริ่มต้น)
+        - **Stop Loss (%):** 5% (ค่าเริ่มต้น)
+        - **Take Profit (%):** 10% (ค่าเริ่มต้น)
+        """)
+    
+    with strategy_tabs[1]:
+        st.markdown("""
+        **MA Crossover Strategy**
+        
+        **หลักการ:**
+        - ซื้อเมื่อ Moving Average สั้นตัดขึ้นเหนือ MA ยาว
+        - ขายเมื่อ Moving Average สั้นตัดลงต่ำกว่า MA ยาว
+        - มี Stop Loss และ Take Profit เพิ่มเติม
+        
+        **พารามิเตอร์:**
+        - **MA สั้น (Short Period):** 10 วัน (ค่าเริ่มต้น)
+        - **MA ยาว (Long Period):** 50 วัน (ค่าเริ่มต้น)
+        - **Stop Loss (%):** 5% (ค่าเริ่มต้น)
+        - **Take Profit (%):** 10% (ค่าเริ่มต้น)
+        """)
+    
+    with strategy_tabs[2]:
+        st.markdown("""
+        **RSI Strategy**
+        
+        **หลักการ:**
+        - ซื้อเมื่อ RSI ต่ำกว่าระดับ Oversold
+        - ขายเมื่อ RSI สูงกว่าระดับ Overbought
+        - มี Stop Loss และ Take Profit เพิ่มเติม
+        
+        **พารามิเตอร์:**
+        - **RSI Period:** 14 วัน (ค่าเริ่มต้น)
+        - **Oversold Level:** 30 (ค่าเริ่มต้น)
+        - **Overbought Level:** 70 (ค่าเริ่มต้น)
+        - **Stop Loss (%):** 5% (ค่าเริ่มต้น)
+        - **Take Profit (%):** 10% (ค่าเริ่มต้น)
+        """)
+    
+    with strategy_tabs[3]:
+        st.markdown("""
+        **Buy & Hold Strategy**
+        
+        **หลักการ:**
+        - ซื้อหุ้นในวันแรกของช่วงทดสอบ
+        - ถือหุ้นตลอดช่วงเวลา
+        - ขายหุ้นในวันสุดท้าย
+        
+        **พารามิเตอร์:**
+        - **Stop Loss/Take Profit:** ไม่ใช้งาน (เพื่อความสม่ำเสมอในระบบ)
+        - เฉพาะค่าธรรมเนียมเท่านั้นที่มีผล
+        """)
+    
+    # 4. คำอธิบายตัวชี้วัด
+    st.subheader("4. 📊 คำอธิบายตัวชี้วัด")
+    
+    metric_tabs = st.tabs(["💰 ผลตอบแทน", "📈 ความเสี่ยง", "🔄 การซื้อขาย"])
+    
+    with metric_tabs[0]:
+        st.markdown("""
+        **ตัวชี้วัดผลตอบแทน:**
+        
+        - **Final Value:** มูลค่าสุดท้ายของพอร์ต
+        - **Net Return (%):** ผลตอบแทนสุทธิ เปรียบเทียบกับเงินทุนเริ่มต้น
+        - **CAGR (%):** อัตราผลตอบแทนแบบทบต้นต่อปี (ถ้าช่วงเวลา > 365 วัน)
+        """)
+    
+    with metric_tabs[1]:
+        st.markdown("""
+        **ตัวชี้วัดความเสี่ยง:**
+        
+        - **Max Drawdown (%):** การลดลงสูงสุดจากจุดสูงสุด
+        - **Sharpe Ratio:** อัตราส่วนผลตอบแทนต่อความเสี่ยง (ถ้ามี)
+        """)
+    
+    with metric_tabs[2]:
+        st.markdown("""
+        **ตัวชี้วัดการซื้อขาย:**
+        
+        - **Number of Trades:** จำนวนรอบการซื้อขาย (นับเฉพาะการขาย)
+        - **Win Rate (%):** อัตราการทำกำไรต่อจำนวนเทรด
+        - **Profit Factor:** อัตราส่วนกำไรรวมต่อขาดทุนรวม
+        - **Average Profit per Trade:** กำไรเฉลี่ยต่อเทรด
+        - **Total Fees:** ค่าธรรมเนียมรวมทั้งหมด
+        """)
+    
+    # 5. ข้อจำกัด & สมมติฐาน
+    st.subheader("5. ⚠️ ข้อจำกัด & สมมติฐาน")
+    st.markdown("""
+    **ข้อจำกัดของระบบ:**
+    - ไม่มีการคำนวณ Slippage (ส่วนต่างราคาจากการซื้อขายจริง)
+    - ใช้ข้อมูลย้อนหลังเท่านั้น (Historical Data)
+    - มี Survivorship Bias (หุ้นที่ยังคงซื้อขายได้)
+    - ไม่รวมเงินปันผลใน Backtesting
+    - ใช้ราคาปิดในการซื้อขาย (ไม่ใช่ราคาเปิด)
+    
+    **สมมติฐาน:**
+    - สามารถซื้อขายได้ในปริมาณที่ต้องการ
+    - ค่าธรรมเนียมคงที่ทุกครั้ง
+    - ไม่มีต้นทุนการถือครอง (Carrying Cost)
+    - ข้อมูลราคาถูกต้องและครบถ้วน
+    """)
+    
+    # 6. คำเตือนความเสี่ยง
+    st.subheader("6. 🚨 คำเตือนความเสี่ยง")
+    st.error("""
+    **คำเตือนสำคัญ:**
+    
+    - ผลการดำเนินงานในอดีตไม่ใช่การรับประกันผลตอบแทนในอนาคต
+    - การลงทุนมีความเสี่ยง อาจได้รับกำไรหรือขาดทุนได้
+    - ควรศึกษาข้อมูลและปรึกษาผู้เชี่ยวชาญก่อนตัดสินใจลงทุน
+    - ระบบนี้เป็นเครื่องมือช่วยวิเคราะห์เท่านั้น ไม่ใช่คำแนะนำการลงทุน
+    - ผู้ใช้ต้องรับผิดชอบการตัดสินใจลงทุนด้วยตนเอง
+    """)
+    
+    # 7. Buffett 18 Checklist (from original)
+    st.subheader("7. 📋 Buffett 18 Checklist (การวิเคราะห์หุ้น)")
+    st.markdown("""
+    ### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
+    1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
+    2. ไม่มี R&D  
+    3. EBITDA > Current Liabilities ทุกปี  
+    4. PPE เพิ่มขึ้น (ไม่มี spike)  
+    5. RTA ≥ 11%  
+    6. RTA ≥ 17%  
+    7. LTD/Total Assets ≤ 0.5  
+    8. EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี  
+    9. Equity ติดลบในปีใดหรือไม่  
+    10. DSER ≤ 1.0  
+    11. DSER ≤ 0.8  
+    12. ไม่มี Preferred Stock  
+    13. Retained Earnings เติบโต ≥ 7%  
+    14. Retained Earnings เติบโต ≥ 13.5%  
+    15. Retained Earnings เติบโต ≥ 17%  
+    16. มี Treasury Stock  
+    17. ROE ≥ 23%  
+    18. Goodwill เพิ่มขึ้น
 
-### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
-1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
-2. ไม่มี R&D  
-3. EBITDA > Current Liabilities ทุกปี  
-4. PPE เพิ่มขึ้น (ไม่มี spike)  
-5. RTA ≥ 11%  
-6. RTA ≥ 17%  
-7. LTD/Total Assets ≤ 0.5  
-8. EBITDA ปีล่าสุดจ่ายหนี้ LTD หมดใน ≤ 4 ปี  
-9. Equity ติดลบในปีใดหรือไม่  
-10. DSER ≤ 1.0  
-11. DSER ≤ 0.8  
-12. ไม่มี Preferred Stock  
-13. Retained Earnings เติบโต ≥ 7%  
-14. Retained Earnings เติบโต ≥ 13.5%  
-15. Retained Earnings เติบโต ≥ 17%  
-16. มี Treasury Stock  
-17. ROE ≥ 23%  
-18. Goodwill เพิ่มขึ้น
-
-### หมายเหตุ
-- ข้อมูลหุ้น US มักครบถ้วนกว่าหุ้นไทย
-- ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
-- ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
-- รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
-""")
+    ### หมายเหตุ
+    - ข้อมูลหุ้น US มักครบถ้วนกว่าหุ้นไทย
+    - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
+    - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
+    - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
+    """)
+    
+    st.markdown("---")
+    st.markdown("**Warren-DCA v0.2.0** | Powered by Yahoo Finance")
     st.stop()
 
-# Market selection
-selected_market = st.selectbox(
-    "เลือกตลาดหุ้น",
-    options=list(markets.keys()),
-    index=0,  # Default to US
-    help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์"
-)
-
-# Get available tickers based on selected market
-available_tickers = markets[selected_market]
-
-# Default tickers based on market
-default_tickers = []
-if selected_market == "US":
-    default_tickers = ["AAPL"]
-elif selected_market == "SET100":
-    default_tickers = ["PTT.BK"]
-elif selected_market == "Global":
-    default_tickers = ["AAPL", "PTT.BK"]
-else:
-    # For other markets, select first ticker as default
-    default_tickers = [available_tickers[0]] if available_tickers else []
-
-tickers = st.multiselect(
-    f"เลือกหุ้น ({selected_market})",
-    available_tickers,
-    default=default_tickers,
-    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์"
-)
-period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
-monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
-show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
-
-if st.button("วิเคราะห์"):
-    export_list = []
-    results_table = []
-    total_invest = 0
-    total_profit = 0
-    total_div = 0
-
-    for ticker in tickers:
-        stock = yf.Ticker(ticker)
-        fin = stock.financials
-        bs = stock.balance_sheet
-        cf = stock.cashflow
-        div = stock.dividends
-        hist = stock.history(period=period)
-        info = stock.info
-
-        manual_yield = np.nan
-        total_div1y = np.nan
-
-        # Get company name
-        company_name = info.get('longName', ticker)
-        company_symbol = ticker
-
-        with st.expander(f"ดูรายละเอียดหุ้น {ticker} - {company_name}", expanded=False):
-            st.subheader(f"ข้อมูลบริษัท: {company_name}")
-            st.write(f"**สัญลักษณ์:** {company_symbol}")
-            
-            st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
-
-            # 1. Dividend Yield (% ต่อปี)
-            div_yield = info.get('dividendYield', None)
-            div_yield_pct = round(div_yield * 100, 2) if div_yield is not None else "N/A"
-
-            # 2. วันที่ปันผลล่าสุด (Ex-Dividend Date)
-            ex_div = info.get('exDividendDate', None)
-            if ex_div:
-                try:
-                    ex_div_date = datetime.datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
-                except Exception:
-                    ex_div_date = str(ex_div)
-            else:
-                ex_div_date = "N/A"
-
-            # 3. 52-Week High / Low
-            w52_high = info.get('fiftyTwoWeekHigh', "N/A")
-            w52_low = info.get('fiftyTwoWeekLow', "N/A")
-
-            # 4. ราคาปิดล่าสุด, ราคาเปิดล่าสุด
-            last_close = info.get('previousClose', "N/A")
-            last_open = info.get('open', "N/A")
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Dividend Yield (%)", div_yield_pct)
-                st.metric("Ex-Dividend Date", ex_div_date)
-            with col2:
-                st.metric("52W High", w52_high)
-                st.metric("52W Low", w52_low)
-            with col3:
-                st.metric("ราคาปิดล่าสุด", last_close)
-                st.metric("ราคาเปิดล่าสุด", last_open)
-
-            # --------- สรุปปันผลย้อนหลัง 1 ปี ---------
-            st.subheader("ผลตอบแทนเงินปันผลย้อนหลัง 1 ปี (คำนวณจากราคาจริง)")
-            if not div.empty and not hist.empty:
-                last_year = hist.index[-1] - pd.DateOffset(years=1)
-                recent_div = div[div.index >= last_year]
-                total_div1y = recent_div.sum()
-                avg_price1y = hist['Close'][hist.index >= last_year].mean()
-                price_base = avg_price1y if (avg_price1y and avg_price1y > 0) else hist['Close'].iloc[-1]
-                manual_yield = (total_div1y / price_base) * 100 if price_base > 0 else np.nan
-
-                st.markdown(f"""
-                <div style='font-size:1.1em;'>
-                <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div1y:.2f}</span><br>
-                <b>ราคาเฉลี่ย 1 ปี:</b> <span style='color:blue'>{price_base:.2f}</span><br>
-                <b>อัตราผลตอบแทน (Dividend Yield):</b> <span style='color:red;font-size:1.3em'>{manual_yield:.2f}%</span>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("ไม่มีข้อมูลปันผลย้อนหลัง (dividends) สำหรับหุ้นนี้")
-
-            st.subheader("Buffett 11 Checklist (แบบละเอียด)")
-            detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
-            badge = get_badge(detail['score_pct'])
-            st.markdown(f"**คะแนนภาพรวม:** {detail['score']} / {detail['evaluated']} ({detail['score_pct']}%) &nbsp;&nbsp;|&nbsp;&nbsp;**ป้ายคะแนน:** {badge}")
-
-            # ตารางรายละเอียดแต่ละข้อ
-            df_detail = pd.DataFrame([
-                {
-                    'ข้อ': i + 1,
-                    'รายการ': d['title'],
-                    'ผลลัพธ์': "✅ ผ่าน" if d['result'] == 1 else ("❌ ไม่ผ่าน" if d['result'] == 0 else "⚪ N/A"),
-                    'คำอธิบาย': d['desc']
-                }
-                for i, d in enumerate(detail['details'])
-            ])
-            st.dataframe(df_detail, hide_index=True)
-
-            st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest, div)
-            st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
-
-            # สะสมผลรวม
-            total_invest += dca_result["เงินลงทุนรวม"]
-            total_profit += dca_result["กำไร/ขาดทุน"]
-            total_div += dca_result["เงินปันผลรวม"]
-
-            results_table.append({
-                "หุ้น": ticker,
-                "ชื่อบริษัท": company_name,
-                "เงินลงทุน": dca_result["เงินลงทุนรวม"],
-                "กำไร": dca_result["กำไร/ขาดทุน"],
-                "เงินปันผล": dca_result["เงินปันผลรวม"],
-                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"]
-            })
-
-            if not hist.empty:
-                st.line_chart(hist['Close'])
-            else:
-                st.warning("ไม่มีข้อมูลราคาหุ้น")
-
-            if show_financials and fin is not None and not fin.empty:
-                st.subheader("งบกำไรขาดทุน (Income Statement)")
-                st.dataframe(df_human_format(fin))
-
-            export_list.append({
-                "หุ้น": ticker,
-                "ชื่อบริษัท": company_name,
-                "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
-                "จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
-                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
-                "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
-                "กำไร(%)": dca_result["กำไร(%)"],
-                "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
-                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not np.isnan(manual_yield) else "N/A",
-                "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not np.isnan(total_div1y) else "N/A",
-                "Dividend Yield (%)": div_yield_pct,
-                "Ex-Dividend Date": ex_div_date,
-                "52W High": w52_high,
-                "52W Low": w52_low,
-                "ราคาปิดล่าสุด": last_close,
-                "ราคาเปิดล่าสุด": last_open,
-                "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
-                "เปอร์เซ็นต์": detail['score_pct'],
-                "ป้ายคะแนน": badge,
-            })
-
-    # --- Export to Excel ---
-    if len(export_list) > 0:
-        df_export = pd.DataFrame(export_list)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_export.to_excel(writer, index=False, sheet_name='WarrenDCA')
-        st.download_button(
-            label="📥 ดาวน์โหลดผลลัพธ์เป็น Excel",
-            data=output.getvalue(),
-            file_name='WarrenDCA_Result.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-
-    # --- สรุปผลหุ้นที่เลือก DCA Simulator รวม ---
-    st.header("สรุปผลรวมหุ้นที่เลือก (DCA Simulator)")
-    st.write(f"💰 เงินลงทุนรวม: {total_invest:.2f}")
-    st.write(f"📈 กำไรรวม: {total_profit:.2f}")
-    st.write(f"💵 เงินปันผลรวมที่ได้รับ: {total_div:.2f}")
-
-    # ตารางสรุปหุ้นที่เลือก
-    if results_table:
-        st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
-        st.dataframe(pd.DataFrame(results_table))
-
-    # --- Pie Chart ---
-    pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
-    pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
-    fig, ax = plt.subplots()
-    colors = ['#2196f3', '#4caf50', '#ffc107']
-    ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
-    ax.set_title("INVEST/Profit/DivyYield")
-    st.pyplot(fig)
-
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี | เวอร์ชัน v0.2.0")
