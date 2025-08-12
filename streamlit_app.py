@@ -7,6 +7,158 @@ import numpy as np
 import matplotlib.pyplot as plt
 import backtrader as bt
 
+# AI Analysis imports - handle gracefully if not installed
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+
+# ----------------- AI Helper Functions -----------------
+def ai_configure(api_key):
+    """Configure Gemini AI with API key"""
+    if GEMINI_AVAILABLE and api_key:
+        try:
+            genai.configure(api_key=api_key)
+            return True
+        except Exception:
+            return False
+    return False
+
+def ai_generate(prompt, max_retries=3):
+    """Generate AI response with error handling"""
+    if not GEMINI_AVAILABLE:
+        return "❌ Google Generative AI library not installed"
+    
+    for attempt in range(max_retries):
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content(prompt)
+            return response.text if response.text else "ไม่สามารถสร้างคำตอบได้"
+        except Exception as e:
+            if attempt == max_retries - 1:
+                return f"❌ AI Error: {str(e)[:100]}..."
+            continue
+
+def compute_timing_analysis(hist_prices, div_data, buffett_score_pct):
+    """Compute timing analysis classification based on multiple factors"""
+    if hist_prices.empty:
+        return None, "ไม่มีข้อมูลราคา"
+    
+    try:
+        # Calculate daily drop %
+        recent_prices = hist_prices['Close'].tail(2)
+        if len(recent_prices) >= 2:
+            daily_drop_pct = ((recent_prices.iloc[-1] - recent_prices.iloc[-2]) / recent_prices.iloc[-2]) * 100
+        else:
+            daily_drop_pct = 0
+        
+        # Calculate volume ratio (last day vs 20-day average)
+        if 'Volume' in hist_prices.columns:
+            recent_volume = hist_prices['Volume'].iloc[-1] if not hist_prices['Volume'].empty else 0
+            avg_volume_20d = hist_prices['Volume'].tail(20).mean() if len(hist_prices) >= 20 else recent_volume
+            volume_ratio = recent_volume / avg_volume_20d if avg_volume_20d > 0 else 1
+        else:
+            volume_ratio = 1
+        
+        # Calculate volatility z-score (simplified)
+        if len(hist_prices) >= 20:
+            returns = hist_prices['Close'].pct_change().dropna()
+            recent_vol = returns.tail(5).std()
+            avg_vol = returns.tail(60).std() if len(returns) >= 60 else recent_vol
+            vol_zscore = (recent_vol - avg_vol) / avg_vol if avg_vol > 0 else 0
+        else:
+            vol_zscore = 0
+        
+        # Classification logic
+        classification = "NORMAL"
+        reason = ""
+        
+        if daily_drop_pct <= -5 and volume_ratio > 1.5 and buffett_score_pct >= 60:
+            classification = "OPPORTUNITY"
+            reason = f"ราคาปรับลง {daily_drop_pct:.1f}% พร้อมปริมาณการซื้อขายสูง และคะแนน Buffett ดี"
+        elif daily_drop_pct <= -3 and buffett_score_pct >= 40:
+            classification = "NORMAL"
+            reason = f"ราคาปรับลงเล็กน้อย {daily_drop_pct:.1f}% คะแนน Buffett ปานกลาง"
+        elif daily_drop_pct >= 3 or vol_zscore > 2 or buffett_score_pct < 30:
+            classification = "CAUTION"
+            reason = f"ราคาผันผวนสูง หรือคะแนน Buffett ต่ำ"
+        elif daily_drop_pct >= 5 or buffett_score_pct < 20:
+            classification = "DANGER"
+            reason = f"ราคาขึ้นรวดเร็ว {daily_drop_pct:.1f}% หรือคะแนน Buffett ต่ำมาก"
+        else:
+            reason = f"ราคาเปลี่ยนแปลง {daily_drop_pct:.1f}% อยู่ในเกณฑ์ปกติ"
+        
+        metrics = {
+            'drop_pct': daily_drop_pct,
+            'volume_ratio': volume_ratio,
+            'vol_zscore': vol_zscore
+        }
+        
+        return classification, reason, metrics
+        
+    except Exception as e:
+        return None, f"Error in timing analysis: {str(e)[:50]}..."
+
+def project_target(hist_prices, horizon_days=15):
+    """Project target price using linear regression on log prices"""
+    if hist_prices.empty or len(hist_prices) < 10:
+        return None
+    
+    try:
+        # Use up to 60 days of data
+        prices = hist_prices['Close'].tail(60)
+        log_prices = np.log(prices)
+        
+        # Simple linear regression on log prices
+        x = np.arange(len(log_prices))
+        coeffs = np.polyfit(x, log_prices, 1)
+        slope, intercept = coeffs
+        
+        # Project future price
+        future_x = len(log_prices) + horizon_days - 1
+        projected_log_price = slope * future_x + intercept
+        projected_price = np.exp(projected_log_price)
+        
+        # Calculate residual standard deviation
+        fitted_log_prices = slope * x + intercept
+        residuals = log_prices - fitted_log_prices
+        residual_std = np.std(residuals)
+        
+        # Calculate confidence bands
+        adjustment = residual_std * np.sqrt(horizon_days)
+        
+        mid_price = projected_price
+        low_price = np.exp(projected_log_price - adjustment)
+        high_price = np.exp(projected_log_price + adjustment)
+        
+        current_price = prices.iloc[-1]
+        mid_change_pct = ((mid_price - current_price) / current_price) * 100
+        low_change_pct = ((low_price - current_price) / current_price) * 100
+        high_change_pct = ((high_price - current_price) / current_price) * 100
+        
+        return {
+            'mid': mid_price,
+            'low': low_price,
+            'high': high_price,
+            'mid_change_pct': mid_change_pct,
+            'low_change_pct': low_change_pct,
+            'high_change_pct': high_change_pct
+        }
+        
+    except Exception as e:
+        return None
+
+def classification_color(classification):
+    """Return color for classification"""
+    colors = {
+        'OPPORTUNITY': '#c8e6c9',  # soft green
+        'NORMAL': '#e3f2fd',      # light blue
+        'CAUTION': '#fff3e0',     # soft amber
+        'DANGER': '#ffebee'       # soft red
+    }
+    return colors.get(classification, '#f5f5f5')
+
 # ----------------- Helper Functions -----------------
 def human_format(num):
     if pd.isna(num):
@@ -586,6 +738,48 @@ markets = {
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
 menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "Backtesting", "คู่มือการใช้งาน"])
 
+# AI Analysis Configuration
+st.sidebar.markdown("---")
+use_ai = st.sidebar.checkbox("ใช้ AI วิเคราะห์ (Gemini)", value=False)
+
+gemini_api_key = None
+ai_configured = False
+
+if use_ai:
+    if not GEMINI_AVAILABLE:
+        st.sidebar.warning("⚠️ ต้องติดตั้ง google-generativeai library ก่อน: `pip install google-generativeai`")
+    else:
+        gemini_api_key = st.sidebar.text_input(
+            "Gemini API Key", 
+            type="password",
+            help="API Key ใช้เฉพาะใน session นี้เท่านั้น ไม่มีการบันทึกหรือส่งออก"
+        )
+        
+        if gemini_api_key:
+            if 'gemini_api_key' not in st.session_state or st.session_state.get('gemini_api_key') != gemini_api_key:
+                ai_configured = ai_configure(gemini_api_key)
+                st.session_state['gemini_api_key'] = gemini_api_key
+                st.session_state['ai_configured'] = ai_configured
+            else:
+                ai_configured = st.session_state.get('ai_configured', False)
+            
+            if ai_configured:
+                st.sidebar.success("✅ AI พร้อมใช้งาน")
+                
+                # Test connection button
+                if st.sidebar.button("ทดสอบการเชื่อมต่อ"):
+                    test_response = ai_generate("สวัสดี ตอบสั้นๆ ว่า 'AI พร้อมใช้งาน'")
+                    if "AI พร้อมใช้งาน" in test_response or "พร้อม" in test_response:
+                        st.sidebar.success("🟢 การเชื่อมต่อ AI สำเร็จ")
+                    else:
+                        st.sidebar.error(f"🔴 การเชื่อมต่อล้มเหลว: {test_response[:50]}...")
+            else:
+                st.sidebar.error("❌ API Key ไม่ถูกต้อง")
+        else:
+            st.sidebar.info("💡 กรุณาใส่ Gemini API Key เพื่อเปิดใช้งาน AI")
+
+st.sidebar.markdown("---")
+
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
@@ -908,6 +1102,144 @@ if st.button("วิเคราะห์"):
             else:
                 st.info("ไม่มีข้อมูลปันผลย้อนหลัง (dividends) สำหรับหุ้นนี้")
 
+            # =============== AI ANALYSIS SECTION ===============
+            if use_ai:
+                st.subheader("🔍 AI Timing & Short-Term Target")
+                
+                # Initialize AI variables
+                timing_classification = None
+                timing_reason = "N/A"
+                timing_metrics = {}
+                target_15d = None
+                target_30d = None
+                ai_insight = "N/A"
+                
+                # Timing Analysis
+                if GEMINI_AVAILABLE:
+                    timing_result = compute_timing_analysis(hist, div, detail['score_pct'])
+                    if timing_result and len(timing_result) >= 3:
+                        timing_classification, timing_reason, timing_metrics = timing_result
+                    else:
+                        timing_classification = None
+                        timing_reason = timing_result[1] if timing_result else "ไม่สามารถวิเคราะห์ได้"
+                
+                # Target Projections
+                target_15d = project_target(hist, 15)
+                target_30d = project_target(hist, 30)
+                
+                # Display Timing Analysis
+                if timing_classification:
+                    timing_color = classification_color(timing_classification)
+                    st.markdown(f"""
+                    <div style='background-color: {timing_color}; padding: 15px; border-radius: 8px; margin: 10px 0; color: #222;'>
+                        <h4 style='margin: 0; color: #222;'>🎯 การวิเคราะห์จังหวะ: {timing_classification}</h4>
+                        <p style='margin: 5px 0; color: #222;'><strong>เหตุผล:</strong> {timing_reason}</p>
+                        <p style='margin: 5px 0; color: #222;'>
+                            <strong>ข้อมูลสำคัญ:</strong> 
+                            Drop: {timing_metrics.get('drop_pct', 0):.1f}% | 
+                            Volume Ratio: {timing_metrics.get('volume_ratio', 1):.1f}x | 
+                            Vol Z-score: {timing_metrics.get('vol_zscore', 0):.1f}
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style='background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 10px 0; color: #222;'>
+                        <h4 style='margin: 0; color: #222;'>🎯 การวิเคราะห์จังหวะ: ไม่สามารถวิเคราะห์ได้</h4>
+                        <p style='margin: 5px 0; color: #222;'>{timing_reason}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Display Target Projections
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if target_15d:
+                        st.markdown(f"""
+                        <div style='background-color: #e8f5e8; padding: 12px; border-radius: 8px; margin: 5px 0; color: #222;'>
+                            <h5 style='margin: 0; color: #222;'>📈 เป้าหมาย 15 วัน</h5>
+                            <p style='margin: 3px 0; color: #222;'><strong>กลาง:</strong> {target_15d['mid']:.2f} ({target_15d['mid_change_pct']:+.1f}%)</p>
+                            <p style='margin: 3px 0; color: #222;'><strong>ต่ำ:</strong> {target_15d['low']:.2f} ({target_15d['low_change_pct']:+.1f}%)</p>
+                            <p style='margin: 3px 0; color: #222;'><strong>สูง:</strong> {target_15d['high']:.2f} ({target_15d['high_change_pct']:+.1f}%)</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                        <div style='background-color: #f5f5f5; padding: 12px; border-radius: 8px; margin: 5px 0; color: #222;'>
+                            <h5 style='margin: 0; color: #222;'>📈 เป้าหมาย 15 วัน</h5>
+                            <p style='margin: 3px 0; color: #222;'>ไม่สามารถคำนวณได้</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                with col2:
+                    if target_30d:
+                        st.markdown(f"""
+                        <div style='background-color: #e8f4fd; padding: 12px; border-radius: 8px; margin: 5px 0; color: #222;'>
+                            <h5 style='margin: 0; color: #222;'>📈 เป้าหมาย 30 วัน</h5>
+                            <p style='margin: 3px 0; color: #222;'><strong>กลาง:</strong> {target_30d['mid']:.2f} ({target_30d['mid_change_pct']:+.1f}%)</p>
+                            <p style='margin: 3px 0; color: #222;'><strong>ต่ำ:</strong> {target_30d['low']:.2f} ({target_30d['low_change_pct']:+.1f}%)</p>
+                            <p style='margin: 3px 0; color: #222;'><strong>สูง:</strong> {target_30d['high']:.2f} ({target_30d['high_change_pct']:+.1f}%)</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                        <div style='background-color: #f5f5f5; padding: 12px; border-radius: 8px; margin: 5px 0; color: #222;'>
+                            <h5 style='margin: 0; color: #222;'>📈 เป้าหมาย 30 วัน</h5>
+                            <p style='margin: 3px 0; color: #222;'>ไม่สามารถคำนวณได้</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # AI Insight
+                if ai_configured and GEMINI_AVAILABLE:
+                    # Create cache key for AI insight
+                    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+                    cache_key = f"ai_insight_{ticker}_{current_date}"
+                    
+                    if cache_key not in st.session_state:
+                        # Generate AI insight
+                        prompt = f"""วิเคราะห์หุ้น {ticker} ({company_name}) ในภาษาไทยแบบกระชับ:
+
+คะแนน Buffett: {detail['score_pct']}%
+การจัดประเภทจังหวะ: {timing_classification or 'ไม่ระบุ'}
+เหตุผล: {timing_reason}
+การเปลี่ยนแปลงราคา: {timing_metrics.get('drop_pct', 0):.1f}%
+เป้าหมาย 15 วัน: {target_15d['mid_change_pct']:+.1f}% ถ้ามีข้อมูล
+เป้าหมาย 30 วัน: {target_30d['mid_change_pct']:+.1f}% ถ้ามีข้อมูล
+
+ให้สรุปในย่อหน้าเดียว ไม่เกิน 3 ประโยค เน้นข้อมูลสำคัญและคำแนะนำสำหรับนักลงทุน"""
+                        
+                        ai_insight = ai_generate(prompt)
+                        st.session_state[cache_key] = ai_insight
+                    else:
+                        ai_insight = st.session_state[cache_key]
+                    
+                    st.markdown(f"""
+                    <div style='background-color: #fff3cd; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #ffc107; color: #222;'>
+                        <h5 style='margin: 0 0 8px 0; color: #222;'>🤖 AI Insight</h5>
+                        <p style='margin: 0; color: #222; line-height: 1.5;'>{ai_insight}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; color: #222;'>
+                        <h5 style='margin: 0 0 8px 0; color: #222;'>🤖 AI Insight</h5>
+                        <p style='margin: 0; color: #666;'>ต้องการ Gemini API Key เพื่อแสดงการวิเคราะห์ AI</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Store AI data for export
+            ai_data = {}
+            if use_ai:
+                ai_data = {
+                    'AI_Timing_Classification': timing_classification or 'N/A',
+                    'AI_Timing_Reason': timing_reason,
+                    'AI_Target_15d_Mid': target_15d['mid'] if target_15d else 'N/A',
+                    'AI_Target_15d_Change': f"{target_15d['mid_change_pct']:+.1f}%" if target_15d else 'N/A',
+                    'AI_Target_30d_Mid': target_30d['mid'] if target_30d else 'N/A', 
+                    'AI_Target_30d_Change': f"{target_30d['mid_change_pct']:+.1f}%" if target_30d else 'N/A',
+                    'AI_Insight': ai_insight if 'ai_insight' in locals() else 'N/A'
+                }
+
             st.subheader("Buffett 11 Checklist (แบบละเอียด)")
             detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
             badge = get_badge(detail['score_pct'])
@@ -952,7 +1284,7 @@ if st.button("วิเคราะห์"):
                 st.subheader("งบกำไรขาดทุน (Income Statement)")
                 st.dataframe(df_human_format(fin))
 
-            export_list.append({
+            export_data = {
                 "หุ้น": ticker,
                 "ชื่อบริษัท": company_name,
                 "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
@@ -972,16 +1304,35 @@ if st.button("วิเคราะห์"):
                 "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
                 "เปอร์เซ็นต์": detail['score_pct'],
                 "ป้ายคะแนน": badge,
-            })
+            }
+            
+            # Add AI data to export if AI is enabled (without API key)
+            if use_ai and 'ai_data' in locals():
+                export_data.update(ai_data)
+            
+            export_list.append(export_data)
 
     # --- Export to Excel ---
     if len(export_list) > 0:
         df_export = pd.DataFrame(export_list)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Main sheet
             df_export.to_excel(writer, index=False, sheet_name='WarrenDCA')
+            
+            # AI Analysis sheet (if AI is enabled)
+            if use_ai:
+                ai_columns = [col for col in df_export.columns if col.startswith('AI_')]
+                if ai_columns:
+                    ai_df = df_export[['หุ้น', 'ชื่อบริษัท'] + ai_columns].copy()
+                    ai_df.to_excel(writer, index=False, sheet_name='AI_Analysis')
+        
+        download_label = "📥 ดาวน์โหลดผลลัพธ์เป็น Excel"
+        if use_ai:
+            download_label += " (รวม AI Analysis)"
+            
         st.download_button(
-            label="📥 ดาวน์โหลดผลลัพธ์เป็น Excel",
+            label=download_label,
             data=output.getvalue(),
             file_name='WarrenDCA_Result.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
