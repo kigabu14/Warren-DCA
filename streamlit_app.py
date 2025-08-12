@@ -6,6 +6,22 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import backtrader as bt
+try:
+    import google.generativeai as genai
+except ImportError:
+    # Mock genai for testing when package is not installed
+    class MockGenAI:
+        def configure(self, api_key):
+            pass
+        def GenerativeModel(self, model_name):
+            return MockModel()
+    class MockModel:
+        def generate_content(self, prompt, generation_config=None):
+            return MockResponse()
+    class MockResponse:
+        text = "AI functionality is not available. Please install google-generativeai package."
+    genai = MockGenAI()
+from textwrap import shorten
 
 # ----------------- Helper Functions -----------------
 def bollinger_bands_strategy(
@@ -209,6 +225,67 @@ def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=
         "ราคาปิดล่าสุด": round(latest_price, 2),
         "เงินปันผลรวม": round(total_div, 2)
     }
+
+def gemini_insight(user_prompt: str, context: str) -> str:
+    """
+    Generate AI insights using Gemini with Thai prompt structure
+    
+    Args:
+        user_prompt: User's question about the stock
+        context: Context including stock data and analysis
+    
+    Returns:
+        AI-generated response or error message
+    """
+    # Check if API key is available
+    if 'gemini_api_key' not in st.session_state or not st.session_state['gemini_api_key']:
+        return "กรุณาเพิ่ม Gemini API Key ในส่วน Settings ทางซ้ายก่อนใช้งาน"
+    
+    try:
+        # Get model and temperature from session state
+        model_name = st.session_state.get('gemini_model', 'gemini-1.5-flash')
+        temperature = st.session_state.get('gemini_temperature', 0.7)
+        
+        # Configure Gemini
+        genai.configure(api_key=st.session_state['gemini_api_key'])
+        model = genai.GenerativeModel(model_name)
+        
+        # Truncate context to avoid token limits
+        truncated_context = shorten(context, width=1600, placeholder="...")
+        
+        # Build Thai prompt structure
+        thai_prompt = f"""
+คุณเป็นนักวิเคราะห์หุ้นมืออาชีพ กรุณาวิเคราะห์ข้อมูลต่อไปนี้และตอบคำถาม:
+
+**ข้อมูลบริบท:**
+{truncated_context}
+
+**คำถามจากผู้ใช้:**
+{user_prompt}
+
+กรุณาตอบตามโครงสร้างต่อไปนี้:
+
+1) **สรุปสถานการณ์**: สรุปสถานะปัจจุบันของหุ้นตัวนี้
+2) **จุดเด่น / โอกาส**: วิเคราะห์จุดแข็งและโอกาสในการลงทุน  
+3) **ความเสี่ยง / ข้อควรระวัง**: ประเด็นที่ควรระวังและความเสี่ยงที่อาจเกิดขึ้น
+4) **แนวคิดกลยุทธ์ต่อไป**: แนะนำกลยุทธ์การลงทุน (ไม่ใช่คำแนะนำการลงทุนโดยตรง)
+
+**ข้อจำกัดความรับผิดชอบ:** การวิเคราะห์นี้เป็นเพียงข้อมูลเพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน ผู้ลงทุนควรศึกษาข้อมูลเพิ่มเติมและประเมินความเสี่ยงด้วยตนเองก่อนตัดสินใจลงทุน
+"""
+        
+        # Generate response
+        response = model.generate_content(
+            thai_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=1000,
+            )
+        )
+        
+        return response.text
+        
+    except Exception as e:
+        return f"เกิดข้อผิดพลาดในการเชื่อมต่อ Gemini API: {str(e)}"
 
 # ----------------- Backtesting Functions & Strategies -----------------
 class MovingAverageCrossStrategy(bt.Strategy):
@@ -939,6 +1016,48 @@ elif menu == "Backtesting":
     """)
     st.stop()
 
+# Gemini AI Settings in Sidebar
+with st.sidebar.expander("🤖 Gemini AI Settings (Optional)", expanded=False):
+    gemini_api_key = st.text_input(
+        "Gemini API Key",
+        type="password",
+        value=st.session_state.get('gemini_api_key', ''),
+        help="Enter your Google Gemini API key to enable AI analysis",
+        placeholder="Enter your API key here..."
+    )
+    
+    if gemini_api_key:
+        st.session_state['gemini_api_key'] = gemini_api_key
+        
+        # Test API key and show status
+        try:
+            genai.configure(api_key=gemini_api_key)
+            # Try to create a model to test the API key
+            test_model = genai.GenerativeModel('gemini-1.5-flash')
+            st.success("✅ API Key configured successfully!")
+        except Exception as e:
+            st.error(f"❌ API Key error: {str(e)}")
+    
+    # Model selection
+    gemini_model = st.selectbox(
+        "Model",
+        options=["gemini-1.5-flash", "gemini-1.5-pro"],
+        index=0,
+        help="Select the Gemini model to use"
+    )
+    st.session_state['gemini_model'] = gemini_model
+    
+    # Temperature slider
+    gemini_temperature = st.slider(
+        "Temperature",
+        min_value=0.0,
+        max_value=1.5,
+        value=0.7,
+        step=0.1,
+        help="Controls randomness in responses (0.0 = more focused, 1.5 = more creative)"
+    )
+    st.session_state['gemini_temperature'] = gemini_temperature
+
 # Market selection
 selected_market = st.selectbox(
     "เลือกตลาดหุ้น",
@@ -1182,6 +1301,46 @@ if st.button("วิเคราะห์"):
             if show_financials and fin is not None and not fin.empty:
                 st.subheader("งบกำไรขาดทุน (Income Statement)")
                 st.dataframe(df_human_format(fin))
+
+            # 🤖 Gemini AI Analysis Section
+            st.subheader("🤖 Gemini วิเคราะห์ (AI)")
+            
+            # Assemble context for AI analysis
+            context_parts = []
+            
+            # Add Buffett checklist score if available
+            if 'detail' in locals():
+                context_parts.append(f"Buffett Checklist Score: {detail['score']}/{detail['evaluated']} ({detail['score_pct']}%)")
+            
+            # Add DCA summary if available
+            if dca_result:
+                context_parts.append(f"""DCA Summary:
+- เงินลงทุนรวม: {dca_result['เงินลงทุนรวม']}
+- มูลค่าปัจจุบัน: {dca_result['มูลค่าปัจจุบัน']} 
+- กำไร/ขาดทุน: {dca_result['กำไร/ขาดทุน']} ({dca_result['กำไร(%)']:.2f}%)
+- เงินปันผลรวม: {dca_result['เงินปันผลรวม']}""")
+            
+            # Add price and period info
+            context_parts.append(f"ราคาปิดล่าสุด: {last_close}")
+            context_parts.append(f"ช่วงเวลาวิเคราะห์: {period}")
+            
+            context_text = "\n".join(context_parts)
+            
+            # User question input
+            default_prompt = f"วิเคราะห์หุ้น {ticker} ({company_name}) และให้คำแนะนำกลยุทธ์การลงทุนตามข้อมูลที่มี"
+            user_question = st.text_area(
+                "คำถามสำหรับ AI:",
+                value=default_prompt,
+                height=100,
+                help="พิมพ์คำถามที่ต้องการให้ AI วิเคราะห์"
+            )
+            
+            # Analysis button
+            if st.button(f"วิเคราะห์ด้วย Gemini - {ticker}", type="primary"):
+                with st.spinner("กำลังวิเคราะห์..."):
+                    ai_response = gemini_insight(user_question, context_text)
+                    st.markdown("**การวิเคราะห์จาก AI:**")
+                    st.markdown(ai_response)
 
             # Prepare export data
             export_data = {
