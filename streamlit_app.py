@@ -914,7 +914,7 @@ if st.button("วิเคราะห์"):
                     'AI_Target_15d_Change': f"{target_15d['mid_change_pct']:+.1f}%" if target_15d else 'N/A',
                     'AI_Target_30d_Mid': target_30d['mid'] if target_30d else 'N/A', 
                     'AI_Target_30d_Change': f"{target_30d['mid_change_pct']:+.1f}%" if target_30d else 'N/A',
-                    'AI_Insight': ai_insight if 'ai_insight' in locals() else 'N/A'
+                    'AI_Insight': ai_insight if ai_insight else 'N/A'
                 }
 
             st.subheader("Buffett 11 Checklist (แบบละเอียด)")
