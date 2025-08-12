@@ -50,6 +50,33 @@ def compute_sharpe(equity_series: pd.Series, rf_annual_pct: float) -> float:
     
     return sharpe
 
+def apply_dividend_cashflow(price_div_df: pd.DataFrame, position_timeline: pd.Series) -> float:
+    """Apply dividend cashflow calculation (placeholder for future strategies)
+    
+    Args:
+        price_div_df: DataFrame with price and dividend data indexed by date
+        position_timeline: Series with position sizes indexed by date
+    
+    Returns:
+        Total dividend cash collected
+        
+    Note:
+        This is a placeholder function for future backtest strategies.
+        Current implementation in dca_simulation handles dividend logic directly.
+    """
+    # Placeholder implementation for future strategies
+    total_dividend_cash = 0.0
+    
+    if 'Dividends' in price_div_df.columns:
+        dividend_events = price_div_df['Dividends'][price_div_df['Dividends'] > 0]
+        
+        for date, dividend_per_share in dividend_events.items():
+            # Find position at dividend date
+            position_at_date = position_timeline.loc[position_timeline.index <= date].iloc[-1] if len(position_timeline.loc[position_timeline.index <= date]) > 0 else 0
+            total_dividend_cash += dividend_per_share * position_at_date
+    
+    return total_dividend_cash
+
 def calc_dividend_yield_manual(div, hist):
     """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
     if not div.empty and not hist.empty:
