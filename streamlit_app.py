@@ -557,16 +557,223 @@ if menu == "คู่มือการใช้งาน":
     st.info("ข้อมูลจาก Yahoo Finance อาจไม่ครบทุกหุ้น/ตลาด")
     st.stop()
 
-# (ถ้ามีเมนู DCA AI Optimizer ให้คงโค้ดเดิมของคุณไว้ที่นี่ - ตัดออกเพื่อย่อ ถ้ายังต้องการให้ผมเพิ่มเต็มบอกได้)
+# ===== Sidebar Settings =====
+with st.sidebar:
+    st.subheader("⚙️ ตั้งค่า Optimizer")
+    opt_market = st.selectbox("ตลาดสำหรับค้นหา", list(markets.keys()), index=0, key="opt_market")
+    candidate_universe = markets[opt_market]
+    max_tickers = st.number_input("จำนวนหุ้นสูงสุด", 1, 15, 5)
+    base_period = st.selectbox("ช่วงราคาประวัติ", ["1y", "5y", "max"], index=0, key="opt_period")
+    total_budget = st.number_input("งบ DCA รวม / เดือน", min_value=100.0, max_value=300000.0, value=5000.0, step=100.0)
+    step_unit = st.number_input("Step ต่อหุ้น (บาท/$ ต่อเดือน)", min_value=50.0, max_value=10000.0, value=500.0, step=50.0)
+    objective = st.selectbox("วัตถุประสงค์", ["maximize_final_value", "maximize_dividends", "risk_adjusted"], index=0)
+    run_btn = st.button("🚀 เริ่ม Optimize", use_container_width=True)
 
-if menu == "DCA AI Optimizer":
-    if not DCA_AI_AVAILABLE:
-        st.error("⚠️ โมดูล DCA AI ยังไม่ถูกติดตั้ง")
-        st.stop()
-    st.header("🤖 DCA AI Optimizer")
-    st.info("ตัดเนื้อหา Optimizer ออกเพื่อย่อไฟล์ หากต้องการเวอร์ชันเต็มบอกว่า: ขอส่วน Optimizer เต็ม")
-    st.stop()
+st.markdown("### เลือกหุ้นที่ต้องการ")
+picked = st.multiselect(
+    f"เลือกหุ้นจาก {opt_market}",
+    candidate_universe[:70],
+    default=candidate_universe[:min(4, len(candidate_universe))]
+)
+if len(picked) > max_tickers:
+    st.warning(f"เลือกเกิน {max_tickers} ตัว ใช้เฉพาะ {max_tickers} ตัวแรก")
+    picked = picked[:max_tickers]
 
+# ===== Helper Functions =====
+def fetch_basic_data(ticker: str, period: str):
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period=period)
+    div = stock.dividends
+    return hist, div
+
+def simulate_single(hist, div, monthly_invest: float):
+    if hist.empty:
+        return {"monthly": monthly_invest, "final_value": 0, "profit": 0, "dividends": 0,
+                "gain_pct": 0, "units": 0}
+    hist = strip_timezone(hist)
+    d = dca_simulation(hist, monthly_invest, div)
+    return {
+        "monthly": monthly_invest,
+        "final_value": d["มูลค่าปัจจุบัน"],
+        "profit": d["กำไร/ขาดทุน"],
+        "gain_pct": d["กำไร(%)"],
+        "dividends": d["เงินปันผลรวม"],
+        "units": d["จำนวนหุ้นสะสม"]
+    }
+
+def brute_force_allocations(tickers, period, budget, step, objective):
+    """
+    Simple integer partition search:
+    - แบ่ง budget เป็น step units
+    - แจกจ่ายให้แต่ละ ticker (non-negative integers ที่ sum = steps)
+    - คำนวณ performance และเลือกตาม objective
+    NOTE: steps จำกัดที่ 40 เพื่อลดเวลาคำนวณ
+    """
+    if not tickers:
+        return None
+
+    cache = {}
+    for t in tickers:
+        h, d = fetch_basic_data(t, period)
+        cache[t] = (h, d)
+
+    steps = int(budget // step)
+    steps = min(steps, 40)  # safety cap
+
+    best = None
+
+    def generate_partitions(n, k):
+        if n == 1:
+            yield [k]
+        else:
+            for i in range(k + 1):
+                for rest in generate_partitions(n - 1, k - i):
+                    yield [i] + rest
+
+    for alloc_steps in generate_partitions(len(tickers), steps):
+        monthly_map = {tickers[i]: alloc_steps[i] * step for i in range(len(tickers))}
+        if sum(monthly_map.values()) == 0:
+            continue
+
+        portfolio_final = 0
+        portfolio_profit = 0
+        portfolio_div = 0
+        gains = []
+        detail_rows = []
+
+        for tk, amt in monthly_map.items():
+            if amt == 0:
+                continue
+            h, d = cache[tk]
+            sim = simulate_single(h, d, amt)
+            portfolio_final += sim["final_value"]
+            portfolio_profit += sim["profit"]
+            portfolio_div += sim["dividends"]
+            gains.append(sim["gain_pct"])
+            detail_rows.append((tk, sim))
+
+        if not gains:
+            continue
+
+        avg_gain = sum(gains) / len(gains)
+        variance = sum((g - avg_gain) ** 2 for g in gains) / len(gains)
+        risk_adj = (portfolio_profit / (1 + variance)) if variance >= 0 else portfolio_profit
+
+        if objective == "maximize_final_value":
+            score = portfolio_final
+        elif objective == "maximize_dividends":
+            score = portfolio_div
+        else:
+            score = risk_adj
+
+        if (best is None) or (score > best["score"]):
+            best = {
+                "score": score,
+                "objective": objective,
+                "allocation": monthly_map,
+                "final_value": portfolio_final,
+                "profit": portfolio_profit,
+                "dividends": portfolio_div,
+                "variance": variance,
+                "details": detail_rows
+            }
+
+    return best
+
+# ===== Advanced External Optimizer (If Available) =====
+if run_btn:
+    used_fallback = False
+    external_result = None
+    if DCA_AI_AVAILABLE:
+        try:
+            st.info("ใช้โมดูล DCA AI ภายนอก...")
+            loader = DCADataLoader()
+            prices_map = {}
+            dividends_map = {}
+            for tk in picked:
+                data = loader.fetch(tk, period=base_period)
+                prices_map[tk] = data["history"]
+                dividends_map[tk] = data.get("dividends")
+            strategies = [
+                DCAStrategyFactory.create("equal_weight"),
+                DCAStrategyFactory.create("value_weighted"),
+            ]
+            optimizer = DCAOptimizer(prices_map, dividends_map, strategies=strategies)
+            external_result = optimizer.optimize(
+                total_budget=total_budget,
+                objective=objective,
+                step=step_unit,
+                max_allocation_per_ticker=None
+            )
+        except Exception as e:
+            st.warning(f"External DCA AI Error: {e}")
+            used_fallback = True
+    else:
+        used_fallback = True
+
+    if used_fallback:
+        with st.spinner("กำลังค้นหาการจัดสรร (Fallback Brute Force)..."):
+            best = brute_force_allocations(picked, base_period, total_budget, step_unit, objective)
+        if not best:
+            st.error("ไม่พบผลลัพธ์ที่เหมาะสม / ข้อมูลไม่พอ")
+        else:
+            st.subheader("ผลลัพธ์ Fallback Optimizer")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Objective Score", f"{best['score']:.2f}")
+            col2.metric("Final Value", f"{best['final_value']:.2f}")
+            col3.metric("Total Profit", f"{best['profit']:.2f}")
+            col4.metric("Total Dividends", f"{best['dividends']:.2f}")
+            st.caption(f"Variance (gain%): {best['variance']:.5f}")
+
+            alloc_df = pd.DataFrame(
+                [{"Ticker": tk, "Monthly Invest": amt} for tk, amt in best["allocation"].items() if amt > 0]
+            ).sort_values("Monthly Invest", ascending=False)
+            st.markdown("#### การจัดสรรต่อเดือน")
+            st.dataframe(alloc_df, use_container_width=True)
+
+            detail_rows = []
+            for tk, sim in best["details"]:
+                detail_rows.append({
+                    "Ticker": tk,
+                    "Monthly": sim["monthly"],
+                    "FinalValue": sim["final_value"],
+                    "Profit": sim["profit"],
+                    "Gain(%)": sim["gain_pct"],
+                    "Dividends": sim["dividends"],
+                    "Units": sim["units"]
+                })
+            st.markdown("#### รายละเอียดต่อหุ้น")
+            st.dataframe(pd.DataFrame(detail_rows), use_container_width=True)
+
+            if not alloc_df.empty:
+                fig_alloc, ax_alloc = plt.subplots()
+                ax_alloc.pie(
+                    alloc_df["Monthly Invest"],
+                    labels=alloc_df["Ticker"],
+                    autopct='%1.1f%%',
+                    startangle=90
+                )
+                ax_alloc.set_title("สัดส่วน DCA / เดือน")
+                st.pyplot(fig_alloc)
+
+            st.success("เสร็จสิ้นการ Optimize (Fallback)")
+
+    else:
+        st.subheader("ผลลัพธ์ External Optimizer")
+        if external_result:
+            summ = external_result.get("summary")
+            allocs = external_result.get("allocations", {})
+            if summ:
+                st.write(summ)
+            if allocs:
+                st.markdown("#### Allocation (External)")
+                st.dataframe(pd.DataFrame([
+                    {"Ticker": k, "Monthly": v} for k, v in allocs.items()
+                ]))
+        else:
+            st.info("ไม่มีข้อมูลสรุปจาก External Optimizer")
+
+st.stop()
 # -------- Main Stock Analysis --------
 selected_market = st.selectbox("เลือกตลาดหุ้น", options=list(markets.keys()), index=0)
 available_tickers = markets[selected_market]
