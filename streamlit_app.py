@@ -328,7 +328,7 @@ def get_stock_data_cached(ticker: str, period: str = "1y") -> Tuple[pd.DataFrame
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
-        info = stock.info
+        hist, info = get_stock_data_cached(ticker, period)
         return hist, info
     except:
         return pd.DataFrame(), {}
