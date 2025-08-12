@@ -90,7 +90,15 @@ def analyze_sentiment(text: str) -> float:
             analyzer = SentimentIntensityAnalyzer()
             score = analyzer.polarity_scores(text)
             return score['compound']
-        except:
+            # Ensure VADER lexicon is downloaded
+            try:
+                nltk.data.find('sentiment/vader_lexicon.zip')
+            except LookupError:
+                nltk.download('vader_lexicon')
+            analyzer = SentimentIntensityAnalyzer()
+            score = analyzer.polarity_scores(text)
+            return score['compound']
+        except Exception:
             pass
     
     return get_simple_sentiment(text)
