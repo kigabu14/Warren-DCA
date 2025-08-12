@@ -954,7 +954,7 @@ elif menu == "Backtesting":
                                     st.download_button(
                                         label="📥 ดาวน์โหลดผลลัพธ์ (Excel)",
                                         data=output.getvalue(),
-                                        file_name=f'BB_Backtest_{ticker}_{datetime.datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+                                        file_name=f'BB_Backtest_{ticker}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
                                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                                     )
                     
