@@ -4,3 +4,6 @@ pandas
 openpyxl
 xlsxwriter
 matplotlib
+
+# Optional: For AI analysis features
+# google-generativeai
