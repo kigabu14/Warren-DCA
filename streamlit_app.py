@@ -6,7 +6,21 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import backtrader as bt
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+except ImportError:
+    # Mock genai for testing when package is not installed
+    class MockGenAI:
+        def configure(self, api_key):
+            pass
+        def GenerativeModel(self, model_name):
+            return MockModel()
+    class MockModel:
+        def generate_content(self, prompt, generation_config=None):
+            return MockResponse()
+    class MockResponse:
+        text = "AI functionality is not available. Please install google-generativeai package."
+    genai = MockGenAI()
 from textwrap import shorten
 
 # ----------------- Helper Functions -----------------
