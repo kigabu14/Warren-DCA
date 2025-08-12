@@ -776,7 +776,7 @@ if menu == "ข่าว & Sentiment":
     if selected_ticker and st.button("ดึงข่าวและวิเคราะห์"):
         with st.spinner("กำลังดึงข้อมูลข่าว..."):
             try:
-                # Get news using yfinance
+                # Create the ticker object once and reuse it
                 stock = yf.Ticker(selected_ticker)
                 news = stock.news
                 
