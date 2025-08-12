@@ -1,4 +1,14 @@
+from future import annotations
 
+import osimport picklefrom datetime 
+import datetime, timedeltafrom pathlib 
+import Pathfrom typing 
+import Dict, List, Tuple, Optional
+
+import numpy as npimport pandas as pdimport yfinance as yf
+
+class DCADataLoader:
+  """Data loader for DCA (Dollar-Cost Averaging) analysis with caching support.
 
 Responsibilities:
   - ดึงข้อมูลราคาหุ้น / กองทุน จาก yfinance
