@@ -966,7 +966,6 @@ def rsi_strategy(data, rsi_period=14, oversold=30, overbought=70, stop_loss_pct=
                 net_proceeds = sell_value - fee
                 profit = net_proceeds - (position * entry_price)
                 capital = net_proceeds
-                total_fees += fee
                 trades.append({
                     'date': current_date,
                     'action': 'SELL',
