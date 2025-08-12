@@ -269,7 +269,7 @@ class DCAOptimizer:
         summary_by_ticker = {}
         
         for ticker, data in ticker_data_dict.items():
-            print(f"Optimizing {ticker}...")
+            logger.info(f"Optimizing {ticker}...")
             
             ticker_results = {}
             best_overall = None
