@@ -955,7 +955,15 @@ def rsi_strategy(data, rsi_period=14, oversold=30, overbought=70, stop_loss_pct=
                 total_fees += fee
                 
                 reason = 'RSI Overbought' if current_rsi > overbought else ('Stop Loss' if profit_pct <= -stop_loss_pct else 'Take Profit')
-                
+            if profit_pct <= -stop_loss_pct:
+                # Sell signal - Stop Loss
+                reason = 'Stop Loss'
+                sell_value = position * current_price
+                fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+                net_proceeds = sell_value - fee
+                profit = net_proceeds - (position * entry_price)
+                capital = net_proceeds
+                total_fees += fee
                 trades.append({
                     'date': current_date,
                     'action': 'SELL',
