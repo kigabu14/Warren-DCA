@@ -985,7 +985,7 @@ def rsi_strategy(data, rsi_period=14, oversold=30, overbought=70, stop_loss_pct=
         # Entry signals
         elif position == 0 and current_rsi < oversold:
             # Buy signal
-            shares_to_buy = int(np.floor(capital / current_price))
+            shares_to_buy = calculate_shares_to_buy(capital, current_price, transaction_cost_rate)
             if shares_to_buy > 0:
                 purchase_value = shares_to_buy * current_price
                 fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
