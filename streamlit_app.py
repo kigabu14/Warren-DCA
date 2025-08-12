@@ -1160,7 +1160,7 @@ def buy_and_hold_strategy(data, transaction_cost_rate=0.1, initial_capital=10000
     
     num_trades = 1  # Only one complete trade cycle
     win_rate_pct = 100.0 if profit > 0 else 0.0
-    avg_profit_per_trade_pct = profit
+    avg_profit_per_trade_pct = (profit / purchase_value) * 100
     profit_factor = None  # N/A for single trade
     
     metrics = {
