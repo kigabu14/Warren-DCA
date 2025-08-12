@@ -74,7 +74,9 @@ def compute_timing_analysis(hist_prices, div_data, buffett_score_pct):
             avg_vol = returns.tail(60).std() if len(returns) >= 60 else recent_vol
             vol_zscore = (recent_vol - avg_vol) / avg_vol if avg_vol > 0 else 0
         else:
-            vol_zscore = 0
+            vol_zscore = (recent_vol - avg_vol) / avg_vol if avg_vol > 0 else None
+        else:
+            vol_zscore = None
         
         # Classification logic
         classification = "NORMAL"
