@@ -1,3 +1,6 @@
+import yfinance as yfimport pandas as pdimport numpy as npfrom datetime import datetime, timedeltafrom typing import Dict, List, Tuple, Optionalimport osimport picklefrom pathlib import Path
+
+class DCADataLoader:“”“Data loader for DCA analysis with caching support”””
 def __init__(self, cache_dir: str = "data/cache"):
     """Initialize data loader with cache directory"""
     self.cache_dir = Path(cache_dir)
