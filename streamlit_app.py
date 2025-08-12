@@ -104,7 +104,7 @@ def bollinger_bands_strategy(
                     'shares': shares,
                     'value': total_cost
                 })
-            
+            )}
             # Sell signal: price crosses above upper band OR stop loss/take profit
             elif position == 1:
                 sell_signal = False
