@@ -5,10 +5,10 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-
+import google.generativeai as genai
 # AI Analysis imports - handle gracefully if not installed
 try:
-    import google.generativeai as genai
+   // import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
