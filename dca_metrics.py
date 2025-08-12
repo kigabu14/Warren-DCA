@@ -9,7 +9,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 from scipy import stats
 import warnings
-warnings.filterwarnings('ignore')
+# Suppress only specific expected warning categories (e.g., RuntimeWarning, FutureWarning)
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 
 class DCAMetrics:
