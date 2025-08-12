@@ -6,4 +6,4 @@ xlsxwriter
 matplotlib
 
 # Optional: For AI analysis features
-# google-generativeai
+google-generativeai
