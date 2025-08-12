@@ -881,7 +881,7 @@ if st.button("วิเคราะห์"):
 เหตุผล: {timing_reason}
 การเปลี่ยนแปลงราคา: {timing_metrics.get('drop_pct', 0):.1f}%
 เป้าหมาย 15 วัน: {(f"{target_15d['mid_change_pct']:+.1f}%" if target_15d and 'mid_change_pct' in target_15d else "ไม่มีข้อมูล")} ถ้ามีข้อมูล
-เป้าหมาย 30 วัน: {target_30d['mid_change_pct']:+.1f}% ถ้ามีข้อมูล
+เป้าหมาย 30 วัน: {(f"{target_30d['mid_change_pct']:+.1f}%" if target_30d and 'mid_change_pct' in target_30d else "ไม่มีข้อมูล")} ถ้ามีข้อมูล
 
 ให้สรุปในย่อหน้าเดียว ไม่เกิน 3 ประโยค เน้นข้อมูลสำคัญและคำแนะนำสำหรับนักลงทุน"""
                         
