@@ -1,7 +1,4 @@
-"""
-DCA Data Loader Module
-Handles multi-ticker data fetching and caching for DCA analysis
-"""
+
 
 import yfinance as yf
 import pandas as pd
