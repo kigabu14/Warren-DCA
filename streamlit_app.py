@@ -31,7 +31,14 @@ def ai_generate(prompt, max_retries=3):
     
     for attempt in range(max_retries):
         try:
-            model = genai.GenerativeModel('gemini-pro')
+def ai_generate(prompt, max_retries=3, model_name='gemini-pro'):
+    """Generate AI response with error handling"""
+    if not GEMINI_AVAILABLE:
+        return "❌ Google Generative AI library not installed"
+    
+    for attempt in range(max_retries):
+        try:
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             return response.text if response.text else "ไม่สามารถสร้างคำตอบได้"
         except Exception as e:
