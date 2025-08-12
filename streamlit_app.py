@@ -1050,7 +1050,8 @@ elif menu == "กลยุทธ์ & Backtest":
                                 if 'Equity Curve' in metrics:
                                     fig, ax = plt.subplots(figsize=(12, 6))
                                     ax.plot(metrics['Equity Curve'].index, metrics['Equity Curve'].values, label='Strategy Equity')
-                                    ax.plot(hist.index, hist['Close'] / hist['Close'].iloc[0] * 10000, label='Buy & Hold', alpha=0.7)
+                                    initial_capital = metrics.get('Initial Capital', 10000)
+                                    ax.plot(hist.index, hist['Close'] / hist['Close'].iloc[0] * initial_capital, label='Buy & Hold', alpha=0.7)
                                     ax.set_ylabel('มูลค่า ($)')
                                     ax.set_title(f'Equity Curve: {strategy}')
                                     ax.legend()
