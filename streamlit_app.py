@@ -96,7 +96,7 @@ def bollinger_bands_strategy(
                 total_cost = shares * entry_price
                 position = 1
                 capital = capital - total_cost  # Deduct only the actual cost, leave remainder
-                
+                })
                 trades.append({
                     'date': current_date,
                     'action': 'BUY',
@@ -104,7 +104,7 @@ def bollinger_bands_strategy(
                     'shares': shares,
                     'value': total_cost
                 })
-            )}
+            
             # Sell signal: price crosses above upper band OR stop loss/take profit
             elif position == 1:
                 sell_signal = False
