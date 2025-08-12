@@ -87,7 +87,6 @@ def analyze_sentiment(text: str) -> float:
     """Analyze sentiment using NLTK VADER if available, otherwise use simple fallback"""
     if HAS_NLTK:
         try:
-            nltk.download('vader_lexicon', quiet=True)
             analyzer = SentimentIntensityAnalyzer()
             score = analyzer.polarity_scores(text)
             return score['compound']
