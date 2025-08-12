@@ -5,7 +5,7 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 # ----------------- Bollinger Bands Strategy Functions -----------------
 def calculate_bollinger_bands(prices: pd.Series, period: int = 20, multiplier: float = 2) -> Tuple[pd.Series, pd.Series, pd.Series]:
