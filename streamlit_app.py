@@ -30,7 +30,6 @@ def ai_generate(prompt, max_retries=3):
         return "❌ Google Generative AI library not installed"
     
     for attempt in range(max_retries):
-        try:
 def ai_generate(prompt, max_retries=3, model_name='gemini-pro'):
     """Generate AI response with error handling"""
     if not GEMINI_AVAILABLE:
