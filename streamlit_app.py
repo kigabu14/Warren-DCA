@@ -1500,6 +1500,7 @@ if menu == "Backtesting":
                         if result['trades']:
                             st.subheader("ตารางธุรกรรม")
                             trades_df = pd.DataFrame(result['trades'])
+                            trades_df['date'] = pd.to_datetime(trades_df['date'])
                             trades_df['date'] = trades_df['date'].dt.strftime('%Y-%m-%d')
                             st.dataframe(trades_df, use_container_width=True)
                         else:
