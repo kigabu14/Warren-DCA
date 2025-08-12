@@ -863,7 +863,7 @@ if menu == "DCA AI Optimizer":
                     st.download_button(
                         label="📥 ดาวน์โหลดผลลัพธ์ Excel",
                         data=output.getvalue(),
-                        file_name=f'DCA_Optimization_Results_{datetime.datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+                        file_name=f'DCA_Optimization_Results_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                     )
                 
