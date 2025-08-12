@@ -613,7 +613,31 @@ def bollinger_bands_strategy(data, period=20, multiplier=2, stop_loss_pct=5, tak
                 })
                 
                 position = 0
-                entry_price = 0
+        
+        if position > 0 and current_price >= upper_band.iloc[i]:
+            # Sell signal
+            sell_value = position * current_price
+            fee = apply_transaction_cost(sell_value, transaction_cost_rate)
+            net_proceeds = sell_value - fee
+            profit = net_proceeds - (position * entry_price)
+            
+            capital = net_proceeds
+            total_fees += fee
+            
+            trades.append({
+                'date': current_date,
+                'action': 'SELL',
+                'price': current_price,
+                'shares': position,
+                'value': -sell_value,
+                'fee': fee,
+                'profit': profit,
+                'reason': 'Price above Upper Band',
+                'strategy': 'Bollinger Bands'
+            })
+            
+            position = 0
+            entry_price = 0
         
         # Update equity curve
         current_equity = capital + (position * current_price)
