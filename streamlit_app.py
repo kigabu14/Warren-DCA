@@ -89,7 +89,16 @@ def compute_timing_analysis(hist_prices, div_data, buffett_score_pct):
         elif daily_drop_pct >= 3 or vol_zscore > 2 or buffett_score_pct < 30:
             classification = "CAUTION"
             reason = f"ราคาผันผวนสูง หรือคะแนน Buffett ต่ำ"
-        elif daily_drop_pct >= 5 or buffett_score_pct < 20:
+        if daily_drop_pct <= DROP_PCT_OPPORTUNITY and volume_ratio > VOLUME_RATIO_OPPORTUNITY and buffett_score_pct >= BUFFETT_SCORE_OPPORTUNITY:
+            classification = "OPPORTUNITY"
+            reason = f"ราคาปรับลง {daily_drop_pct:.1f}% พร้อมปริมาณการซื้อขายสูง และคะแนน Buffett ดี"
+        elif daily_drop_pct <= DROP_PCT_NORMAL and buffett_score_pct >= BUFFETT_SCORE_NORMAL:
+            classification = "NORMAL"
+            reason = f"ราคาปรับลงเล็กน้อย {daily_drop_pct:.1f}% คะแนน Buffett ปานกลาง"
+        elif daily_drop_pct >= DROP_PCT_CAUTION or vol_zscore > VOL_ZSCORE_CAUTION or buffett_score_pct < BUFFETT_SCORE_CAUTION:
+            classification = "CAUTION"
+            reason = f"ราคาผันผวนสูง หรือคะแนน Buffett ต่ำ"
+        elif daily_drop_pct >= DROP_PCT_DANGER or buffett_score_pct < BUFFETT_SCORE_DANGER:
             classification = "DANGER"
             reason = f"ราคาขึ้นรวดเร็ว {daily_drop_pct:.1f}% หรือคะแนน Buffett ต่ำมาก"
         else:
