@@ -6,6 +6,77 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    genai = None
+    GEMINI_AVAILABLE = True
+
+
+def setup_gemini(api_key: str) -> bool:
+    if not (GEMINI_AVAILABLE and api_key):
+        return False
+    try:
+        genai.configure(api_key=api_key)
+        return True
+    except Exception:
+        return False
+
+
+def gemini_analyze_company(ticker: str, company_name: str, buffett_detail: dict, dca_result: dict) -> str:
+    if not GEMINI_AVAILABLE:
+        return "❌ ยังไม่ได้ติดตั้ง google-generativeai (pip install google-generativeai)"
+    try:
+        details = buffett_detail.get('details', [])
+        passed = sum(1 for d in details if d['result'] == 1)
+        failed = sum(1 for d in details if d['result'] == 0)
+        na = sum(1 for d in details if d['result'] == -1)
+        failed_list = [d['title'] for d in details if d['result'] == 0]
+        failed_text = ", ".join(failed_list) if failed_list else "ผ่านทุกข้อ หรือไม่มีข้อไม่ผ่านที่ระบุ"
+        score_pct = buffett_detail.get('score_pct', 0)
+        prompt = f"""
+วิเคราะห์หุ้น {ticker} ({company_name}) ภาษาไทยอย่างมีโครงสร้าง:
+สรุป Buffett Checklist:
+- ผ่าน {passed} ไม่ผ่าน {failed} ไม่มีข้อมูล {na} คะแนนรวม {score_pct}%
+- ข้อไม่ผ่าน: {failed_text}
+
+สรุป DCA (จำลอง):
+- เงินลงทุนรวม: {dca_result.get('เงินลงทุนรวม')}
+- มูลค่าปัจจุบัน: {dca_result.get('มูลค่าปัจจุบัน')}
+- กำไร/ขาดทุน: {dca_result.get('กำไร/ขาดทุน')} ({dca_result.get('กำไร(%)')}%)
+- เงินปันผลรวม: {dca_result.get('เงินปันผลรวม')}
+- ราคาเฉลี่ยที่ซื้อ: {dca_result.get('ราคาเฉลี่ยที่ซื้อ')}
+- ราคาปิดล่าสุด: {dca_result.get('ราคาปิดล่าสุด')}
+
+หัวข้อที่ต้องการ:
+1) ภาพรวมธุรกิจ/คุณภาพ
+2) จุดเด่น
+3) ความเสี่ยง / ข้อควรระวัง (อ้างอิงข้อไม่ผ่าน)
+4) มุมมองต่อกลยุทธ์ DCA (ไม่ใช่คำแนะนำ)
+5) สรุป + Disclaimer
+ห้ามเดาตัวเลขใหม่ที่ไม่มีในข้อมูล
+"""
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        resp = model.generate_content(prompt)
+        return resp.text or "(ไม่มีข้อความตอบกลับจากโมเดล)"
+    except Exception as e:
+        return f"⚠️ Gemini error: {str(e)[:200]}"
+
+
+# ----------------- Helper Functions -----------------
+def strip_timezone(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    for col in df.select_dtypes(include=['datetimetz']).columns:
+        df[col] = df[col].dt.tz_localize(None)
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            sample = next((v for v in df[col] if isinstance(v, pd.Timestamp)), None)
+            if sample is not None and sample.tz is not None:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.tz_localize(None)
+    return df
 # ----------------- Helper Functions -----------------
 def human_format(num):
     if pd.isna(num):
