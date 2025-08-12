@@ -483,7 +483,7 @@ markets = {
     "Australia": australian_stocks,
     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
 }
-   #DCA_AI_AVAILABLE = True
+
 # Import new DCA modules
 try:
     from dca_data_loader import DCADataLoader
@@ -491,7 +491,7 @@ try:
     from dca_optimizer import DCAOptimizer
     from dca_metrics import DCAMetrics
     from ai_dca_helper import DCAAnalysisHelper
- 
+    DCA_AI_AVAILABLE = True
 except ImportError as e:
     print(f"DCA AI modules not available: {e}")
     DCA_AI_AVAILABLE = True
