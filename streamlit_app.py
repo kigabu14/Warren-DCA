@@ -785,7 +785,7 @@ def ma_crossover_strategy(data, short_period=10, long_period=50, stop_loss_pct=5
             
             # Buy signal: short MA crosses above long MA
             if position == 0 and prev_short_ma <= prev_long_ma and curr_short_ma > curr_long_ma:
-                shares_to_buy = int(capital / current_price)
+                shares_to_buy = calculate_shares_to_buy(capital, current_price)
                 if shares_to_buy > 0:
                     purchase_value = shares_to_buy * current_price
                     fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
