@@ -590,7 +590,9 @@ def bollinger_bands_strategy(data, period=20, multiplier=2, stop_loss_pct=5, tak
                             'strategy': 'Bollinger Bands'
                         })
             
-            elif position > 0 and current_price >= upper_band.iloc[i]:
+        
+        elif position > 0:
+            if current_price >= upper_band.iloc[i]:
                 # Sell signal
                 sell_value = position * current_price
                 fee = apply_transaction_cost(sell_value, transaction_cost_rate)
