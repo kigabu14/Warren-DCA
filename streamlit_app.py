@@ -5,6 +5,9 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+import uuid
+from ai_helper import AIHelper
+from ai_database import AIDatabase
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -413,9 +416,225 @@ markets = {
     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
 }
 
+# ----------------- AI Chat Interface -----------------
+def initialize_ai_session():
+    """Initialize AI-related session state variables."""
+    if 'ai_helper' not in st.session_state:
+        st.session_state.ai_helper = AIHelper()
+    
+    if 'ai_database' not in st.session_state:
+        st.session_state.ai_database = AIDatabase()
+    
+    if 'conversation_history' not in st.session_state:
+        st.session_state.conversation_history = []
+    
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
+def render_ai_interface():
+    """Render the AI chat interface in the sidebar."""
+    with st.sidebar:
+        st.header("🤖 AI Financial Assistant")
+        
+        # Check if AI is configured
+        if not st.session_state.ai_helper.is_ready():
+            st.warning("⚠️ AI not configured. Please set GOOGLE_AI_API_KEY environment variable or in Streamlit secrets.")
+            with st.expander("Setup Instructions"):
+                st.markdown("""
+                **To enable AI features:**
+                1. Get a Google AI API key from [Google AI Studio](https://aistudio.google.com/)
+                2. Set it as environment variable: `GOOGLE_AI_API_KEY=your_key`
+                3. Or add to Streamlit secrets: `GOOGLE_AI_API_KEY = "your_key"`
+                4. Restart the application
+                """)
+            return
+        
+        # Display AI statistics
+        stats = st.session_state.ai_database.get_query_statistics()
+        st.caption(f"💬 Total queries: {stats['total_queries']} | Today: {stats['queries_today']}")
+        
+        # Sample questions
+        with st.expander("📝 Sample Questions"):
+            sample_questions = st.session_state.ai_helper.get_sample_questions()
+            for i, question in enumerate(sample_questions[:5]):
+                if st.button(f"📌 {question[:50]}...", key=f"sample_{i}", help=question):
+                    st.session_state.ai_query_input = question
+                    st.rerun()
+        
+        # AI Query Input
+        ai_query = st.text_area(
+            "Ask the AI about your stocks:",
+            height=100,
+            placeholder="e.g., 'Analyze my selected stocks based on Warren Buffett principles'",
+            key="ai_query_input"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            ask_button = st.button("🚀 Ask AI", type="primary", use_container_width=True)
+        with col2:
+            clear_button = st.button("🗑️ Clear Chat", use_container_width=True)
+        
+        if clear_button:
+            st.session_state.conversation_history = []
+            st.rerun()
+        
+        # Process AI query
+        if ask_button and ai_query.strip():
+            with st.spinner("🤔 AI is thinking..."):
+                # Get current context
+                context_data = get_current_context()
+                
+                # Get AI response
+                response = st.session_state.ai_helper.query_ai(
+                    ai_query, 
+                    context_data, 
+                    st.session_state.conversation_history
+                )
+                
+                # Store in database
+                st.session_state.ai_database.store_query(
+                    ai_query, 
+                    response, 
+                    context_data, 
+                    st.session_state.session_id
+                )
+                
+                # Add to conversation history
+                st.session_state.conversation_history.append({
+                    'user': ai_query,
+                    'assistant': response,
+                    'timestamp': datetime.datetime.now().strftime("%H:%M:%S")
+                })
+                
+                # Clear input and rerun
+                st.session_state.ai_query_input = ""
+                st.rerun()
+        
+        # Display conversation history
+        if st.session_state.conversation_history:
+            st.subheader("💬 Conversation")
+            
+            # Reverse to show latest first
+            for i, msg in enumerate(reversed(st.session_state.conversation_history[-5:])):
+                with st.container():
+                    st.markdown(f"**👤 You ({msg['timestamp']}):**")
+                    st.markdown(msg['user'])
+                    
+                    st.markdown("**🤖 AI Assistant:**")
+                    st.markdown(msg['assistant'])
+                    
+                    st.divider()
+
+def get_current_context():
+    """Get current application context for AI queries."""
+    context = {}
+    
+    # Add selected market if available
+    try:
+        context['market'] = st.session_state.get('selected_market', 'Unknown')
+    except:
+        pass
+    
+    # Add selected tickers if available
+    try:
+        context['selected_stocks'] = st.session_state.get('selected_tickers', [])
+    except:
+        pass
+    
+    # Add DCA settings if available
+    try:
+        context['dca_settings'] = {
+            'monthly_invest': st.session_state.get('monthly_invest', 1000),
+            'period': st.session_state.get('period', '5y')
+        }
+    except:
+        pass
+    
+    context['analysis_results'] = True  # Indicates analysis results are available
+    
+    return context
+
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+
+# Initialize AI session
+initialize_ai_session()
+
+# Render AI interface in sidebar
+render_ai_interface()
+
+# Main navigation
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน", "AI Chat History"])
+
+if menu == "AI Chat History":
+    st.header("🤖 AI Chat History")
+    
+    if not st.session_state.ai_helper.is_ready():
+        st.warning("AI is not configured. Please configure your Google AI API key to use this feature.")
+        st.stop()
+    
+    # Display statistics
+    stats = st.session_state.ai_database.get_query_statistics()
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Queries", stats['total_queries'])
+    with col2:
+        st.metric("Queries Today", stats['queries_today'])
+    with col3:
+        if stats['last_query_time']:
+            st.metric("Last Query", stats['last_query_time'][:16])
+        else:
+            st.metric("Last Query", "None")
+    
+    # Search functionality
+    st.subheader("🔍 Search Chat History")
+    search_term = st.text_input("Search in queries and responses:", placeholder="Enter search term...")
+    
+    if search_term:
+        search_results = st.session_state.ai_database.search_queries(search_term, limit=20)
+        if search_results:
+            st.write(f"Found {len(search_results)} results for '{search_term}':")
+            for result in search_results:
+                with st.expander(f"Query on {result['timestamp'][:16]} - {result['query'][:50]}..."):
+                    st.markdown(f"**Query:** {result['query']}")
+                    st.markdown(f"**Response:** {result['response']}")
+                    if result['context_data']:
+                        st.json(result['context_data'])
+        else:
+            st.info("No results found.")
+    
+    # Recent queries
+    st.subheader("📝 Recent Queries")
+    recent_queries = st.session_state.ai_database.get_recent_queries(limit=10)
+    
+    if recent_queries:
+        for query in recent_queries:
+            with st.expander(f"{query['timestamp'][:16]} - {query['query'][:60]}..."):
+                st.markdown(f"**Query:** {query['query']}")
+                st.markdown(f"**Response:** {query['response']}")
+                if query['context_data']:
+                    st.markdown("**Context Data:**")
+                    st.json(query['context_data'])
+    else:
+        st.info("No chat history found. Start a conversation with the AI assistant!")
+    
+    # Cleanup options
+    st.subheader("🧹 Data Management")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Clear Old Data (30+ days)"):
+            deleted = st.session_state.ai_database.clear_old_queries(30)
+            st.success(f"Deleted {deleted} old queries.")
+            st.rerun()
+    with col2:
+        if st.button("⚠️ Clear All Data"):
+            if st.checkbox("I understand this will delete all chat history"):
+                deleted = st.session_state.ai_database.clear_old_queries(0)
+                st.success(f"Deleted all {deleted} queries.")
+                st.rerun()
+    
+    st.stop()
 
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
@@ -423,6 +642,20 @@ if menu == "คู่มือการใช้งาน":
 **Warren-DCA คืออะไร?**  
 โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี  
 **แหล่งข้อมูล:** Yahoo Finance
+
+### 🤖 AI Financial Assistant (ใหม่!)
+โปรแกรมมี AI Assistant ที่ช่วยวิเคราะห์และให้คำแนะนำการลงทุน:
+- ใช้ Google Gemini AI เพื่อตอบคำถามเกี่ยวกับหุ้น
+- วิเคราะห์ข้อมูลตามหลักการของ Warren Buffett
+- ให้คำแนะนำการลงทุนแบบ DCA
+- เก็บประวัติการสนทนาไว้ในฐานข้อมูล
+- ไม่ทำให้หน้าเว็บรีเฟรชใหม่เมื่อถามคำถาม
+
+**วิธีใช้ AI:**
+1. ตั้งค่า Google AI API Key (ดูคำแนะนำในแถบด้านข้าง)
+2. เลือกหุ้นที่ต้องการวิเคราะห์
+3. ถามคำถามใน AI Assistant ที่แถบด้านข้าง
+4. ดูประวัติการสนทนาในหน้า "AI Chat History"
 
 ### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
 1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
@@ -449,6 +682,7 @@ if menu == "คู่มือการใช้งาน":
 - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
+- AI Assistant ต้องการ Google AI API Key เพื่อใช้งาน
 """)
     st.stop()
 
@@ -457,7 +691,8 @@ selected_market = st.selectbox(
     "เลือกตลาดหุ้น",
     options=list(markets.keys()),
     index=0,  # Default to US
-    help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์"
+    help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์",
+    key="selected_market"
 )
 
 # Get available tickers based on selected market
@@ -479,10 +714,11 @@ tickers = st.multiselect(
     f"เลือกหุ้น ({selected_market})",
     available_tickers,
     default=default_tickers,
-    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์"
+    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์",
+    key="selected_tickers"
 )
-period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
-monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
+period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1, key="period")
+monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0, key="monthly_invest")
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
 if st.button("วิเคราะห์"):
@@ -666,4 +902,4 @@ if st.button("วิเคราะห์"):
     ax.set_title("INVEST/Profit/DivyYield")
     st.pyplot(fig)
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
+st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี + AI Assistant (Google Gemini)")
