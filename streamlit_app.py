@@ -20,6 +20,36 @@ def human_format(num):
 def df_human_format(df):
     return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
+def compute_sharpe(equity_series: pd.Series, rf_annual_pct: float) -> float:
+    """คำนวณ Sharpe Ratio จากข้อมูล equity curve
+    
+    Args:
+        equity_series: ข้อมูลมูลค่า portfolio รายเดือน
+        rf_annual_pct: อัตราดอกเบี้ยปลอดความเสี่ยงต่อปี (%)
+    
+    Returns:
+        Sharpe Ratio หรือ None ถ้าคำนวณไม่ได้
+    """
+    if equity_series.empty or len(equity_series) < 2:
+        return None
+    
+    # คำนวณ monthly returns
+    periodic_returns = equity_series.pct_change().dropna()
+    
+    if periodic_returns.empty or periodic_returns.std() == 0:
+        return None
+    
+    # แปลง annual risk-free rate เป็น monthly
+    rf_monthly = ((1 + rf_annual_pct / 100) ** (1/12)) - 1
+    
+    # คำนวณ excess returns
+    excess_returns = periodic_returns - rf_monthly
+    
+    # Sharpe ratio (annualized)
+    sharpe = (excess_returns.mean() / excess_returns.std()) * (12**0.5)
+    
+    return sharpe
+
 def calc_dividend_yield_manual(div, hist):
     """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
     if not div.empty and not hist.empty:
@@ -31,36 +61,101 @@ def calc_dividend_yield_manual(div, hist):
         return total_div, avg_price, manual_yield
     return 0, 0, np.nan
 
-def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=None):
+def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=None, use_adjusted: bool = True, rf_annual_pct: float = 1.5):
+    """จำลองการลงทุน DCA พร้อมคำนวณ Sharpe Ratio และจัดการเงินปันผล
+    
+    Args:
+        hist_prices: ข้อมูลราคาหุ้น
+        monthly_invest: จำนวนเงินลงทุนต่อเดือน
+        div: ข้อมูลเงินปันผล
+        use_adjusted: ใช้ราคา Adjusted Close หรือไม่
+        rf_annual_pct: อัตราดอกเบี้ยปลอดความเสี่ยงต่อปี (%)
+    
+    Returns:
+        dict ผลลัพธ์การจำลอง DCA รวม Sharpe Ratio
+    """
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
-    prices = hist_prices['Close'].resample('M').first().dropna()
+    
+    # เลือกราคาที่ใช้ตาม mode
+    price_column = 'Adj Close' if use_adjusted else 'Close'
+    if price_column not in hist_prices.columns:
+        price_column = 'Close'  # fallback
+        
+    prices = hist_prices[price_column].resample('M').first().dropna()
     units = monthly_invest / prices
     total_units = units.sum()
     total_invested = monthly_invest * len(prices)
     avg_buy_price = total_invested / total_units if total_units != 0 else 0
     latest_price = prices.iloc[-1]
-    current_value = total_units * latest_price
-    profit = current_value - total_invested
-    # คำนวณเงินปันผลรวมที่ได้รับตามจำนวนหุ้นที่ถือในแต่ละเดือน
-    total_div = 0
-    if div is not None and not div.empty:
+    
+    # คำนวณเงินปันผลตามโหมด
+    dividend_cash = 0
+    dividends_included_flag = use_adjusted
+    
+    if not use_adjusted and div is not None and not div.empty:
+        # คำนวณเงินปันผลแยกสำหรับ Close price mode
         div_period = div[div.index >= prices.index[0]]
         if not div_period.empty:
             cum_units = units.cumsum()
             for i, dt in enumerate(prices.index):
                 div_in_month = div_period[(div_period.index.month == dt.month) & (div_period.index.year == dt.year)].sum()
                 if div_in_month > 0:
-                    total_div += div_in_month * cum_units.iloc[i]
+                    dividend_cash += div_in_month * cum_units.iloc[i]
+    
+    # คำนวณมูลค่าปัจจุบัน
+    if use_adjusted:
+        # สำหรับ adjusted price เงินปันผลรวมอยู่ในราคาแล้ว
+        current_value = total_units * latest_price
+        total_portfolio_value = current_value
+    else:
+        # สำหรับ close price บวกเงินปันผลแยก
+        current_value = total_units * latest_price
+        total_portfolio_value = current_value + dividend_cash
+    
+    profit = total_portfolio_value - total_invested
+    
+    # สร้าง equity curve สำหรับคำนวณ Sharpe Ratio
+    equity_curve = []
+    cum_invested = 0
+    cum_shares = 0
+    div_cash_accumulated = 0
+    
+    for i, (date, price) in enumerate(prices.items()):
+        cum_invested += monthly_invest
+        cum_shares += monthly_invest / price
+        
+        # คำนวณเงินปันผลสะสมถึงจุดนี้
+        if not use_adjusted and div is not None and not div.empty:
+            div_in_month = div[(div.index.month == date.month) & (div.index.year == date.year)].sum()
+            if div_in_month > 0:
+                div_cash_accumulated += div_in_month * cum_shares
+        
+        # มูลค่า portfolio ณ จุดนี้
+        if use_adjusted:
+            portfolio_value = cum_shares * price
+        else:
+            portfolio_value = cum_shares * price + div_cash_accumulated
+            
+        equity_curve.append(portfolio_value)
+    
+    # คำนวณ Sharpe Ratio
+    equity_series = pd.Series(equity_curve, index=prices.index)
+    sharpe_ratio = compute_sharpe(equity_series, rf_annual_pct)
+    
     return {
         "เงินลงทุนรวม": round(total_invested, 2),
         "จำนวนหุ้นสะสม": round(total_units, 4),
         "มูลค่าปัจจุบัน": round(current_value, 2),
+        "เงินปันผลรวม": round(dividend_cash, 2),
+        "มูลค่ารวม (รวมปันผล)": round(total_portfolio_value, 2),
         "กำไร/ขาดทุน": round(profit, 2),
         "กำไร(%)": round(profit/total_invested*100, 2) if total_invested != 0 else 0,
         "ราคาเฉลี่ยที่ซื้อ": round(avg_buy_price, 2),
         "ราคาปิดล่าสุด": round(latest_price, 2),
-        "เงินปันผลรวม": round(total_div, 2)
+        "Sharpe Ratio": round(sharpe_ratio, 4) if sharpe_ratio is not None else "N/A",
+        "ใช้ราคา Adjusted": use_adjusted,
+        "รวมปันผลในราคา": dividends_included_flag
     }
 
 # ----------------- Buffett 11 Checklist (ละเอียด) -----------------
@@ -483,6 +578,8 @@ tickers = st.multiselect(
 )
 period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
 monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
+risk_free_rate = st.number_input("Risk-free Rate (annual %, Sharpe)", 0.0, 20.0, 1.5, 0.1)
+use_adjusted = st.checkbox("Use Adjusted Close (ignore explicit dividend cash)", value=True)
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
 if st.button("วิเคราะห์"):
@@ -498,7 +595,15 @@ if st.button("วิเคราะห์"):
         bs = stock.balance_sheet
         cf = stock.cashflow
         div = stock.dividends
-        hist = stock.history(period=period)
+        
+        # ดาวน์โหลดข้อมูลราคาตามโหมดที่เลือก
+        if use_adjusted:
+            # ใช้ adjusted price (ปกติ)
+            hist = stock.history(period=period, auto_adjust=True)
+        else:
+            # ใช้ close price และดึงข้อมูล dividends แยก
+            hist = stock.history(period=period, actions=True, auto_adjust=False)
+            
         info = stock.info
 
         manual_yield = np.nan
@@ -585,7 +690,13 @@ if st.button("วิเคราะห์"):
             st.dataframe(df_detail, hide_index=True)
 
             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest, div)
+            dca_result = dca_simulation(hist, monthly_invest, div, use_adjusted, risk_free_rate)
+            
+            # แสดงข้อมูล Sharpe Ratio และโหมดที่ใช้
+            st.write(f"**โหมดการคำนวณ:** {'Adjusted Close (รวมปันผลในราคา)' if use_adjusted else 'Close + Explicit Dividends'}")
+            st.write(f"**Sharpe Ratio:** {dca_result.get('Sharpe Ratio', 'N/A')}")
+            st.write(f"**Dividend Cash:** {dca_result.get('เงินปันผลรวม', 0):.2f}")
+            
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
             # สะสมผลรวม
@@ -603,7 +714,8 @@ if st.button("วิเคราะห์"):
             })
 
             if not hist.empty:
-                st.line_chart(hist['Close'])
+                price_col = 'Adj Close' if use_adjusted and 'Adj Close' in hist.columns else 'Close'
+                st.line_chart(hist[price_col])
             else:
                 st.warning("ไม่มีข้อมูลราคาหุ้น")
 
@@ -620,6 +732,10 @@ if st.button("วิเคราะห์"):
                 "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
                 "กำไร(%)": dca_result["กำไร(%)"],
                 "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
+                "มูลค่ารวม (รวมปันผล)": dca_result["มูลค่ารวม (รวมปันผล)"],
+                "Sharpe Ratio": dca_result.get("Sharpe Ratio", "N/A"),
+                "ใช้ราคา Adjusted": dca_result.get("ใช้ราคา Adjusted", True),
+                "รวมปันผลในราคา": dca_result.get("รวมปันผลในราคา", True),
                 "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not np.isnan(manual_yield) else "N/A",
                 "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not np.isnan(total_div1y) else "N/A",
                 "Dividend Yield (%)": div_yield_pct,
