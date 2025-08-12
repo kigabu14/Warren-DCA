@@ -8,6 +8,152 @@ import matplotlib.pyplot as plt
 import backtrader as bt
 
 # ----------------- Helper Functions -----------------
+def bollinger_bands_strategy(
+    hist_data: pd.DataFrame,
+    period: int = 20,
+    multiplier: float = 2,
+    initial_capital: float = 10000,
+    stop_loss_pct: float = 5.0,
+    take_profit_pct: float = 10.0,
+    transaction_cost_rate: float = 0.0
+) -> dict:
+    """
+    Bollinger Bands trading strategy with transaction costs
+    
+    Args:
+        hist_data: Historical price data with 'Close' column
+        period: Period for moving average and standard deviation
+        multiplier: Standard deviation multiplier for bands
+        initial_capital: Starting capital
+        stop_loss_pct: Stop loss percentage
+        take_profit_pct: Take profit percentage  
+        transaction_cost_rate: Transaction cost rate (e.g., 0.001 = 0.1%)
+    
+    Returns:
+        Dictionary with strategy results including trades and performance metrics
+    """
+    if hist_data.empty or len(hist_data) < period:
+        return {"error": "Insufficient data for Bollinger Bands strategy"}
+    
+    # Calculate Bollinger Bands
+    prices = hist_data['Close'].copy()
+    rolling_mean = prices.rolling(window=period).mean()
+    rolling_std = prices.rolling(window=period).std()
+    upper_band = rolling_mean + (multiplier * rolling_std)
+    lower_band = rolling_mean - (multiplier * rolling_std)
+    
+    # Initialize trading variables
+    capital = float(initial_capital)
+    shares = 0.0
+    position = 0  # 0 = no position, 1 = long position
+    entry_price = 0.0
+    trades = []
+    equity_curve = []
+    
+    # Trading loop
+    for i in range(period, len(hist_data)):
+        current_price = prices.iloc[i]
+        current_date = hist_data.index[i]
+        
+        # BUY condition: price crosses below lower band
+        if position == 0 and current_price < lower_band.iloc[i] and not pd.isna(lower_band.iloc[i]):
+            effective_price = current_price * (1 + transaction_cost_rate)
+            shares = capital / effective_price
+            fee_buy = shares * current_price * transaction_cost_rate
+            total_cost = shares * current_price + fee_buy
+            entry_price = effective_price
+            capital -= total_cost
+            position = 1
+            
+            trades.append({
+                'date': current_date,
+                'action': 'BUY',
+                'price': round(current_price, 4),
+                'shares': round(shares, 4),
+                'value': round(total_cost, 2),
+                'fee': round(fee_buy, 2)
+            })
+            
+        # SELL conditions
+        elif position == 1:
+            sell_signal = False
+            sell_reason = ''
+            
+            # Check exit conditions
+            if current_price > upper_band.iloc[i] and not pd.isna(upper_band.iloc[i]):
+                sell_signal = True
+                sell_reason = 'Upper band crossed'
+            elif (current_price - entry_price) / entry_price * 100 >= take_profit_pct:
+                sell_signal = True
+                sell_reason = f'Take profit ({take_profit_pct}%)'
+            elif (entry_price - current_price) / entry_price * 100 >= stop_loss_pct:
+                sell_signal = True
+                sell_reason = f'Stop loss ({stop_loss_pct}%)'
+            
+            if sell_signal:
+                gross_value = shares * current_price
+                fee_sell = gross_value * transaction_cost_rate
+                net_value = gross_value - fee_sell
+                profit = net_value - (shares * (entry_price - transaction_cost_rate * entry_price))
+                capital += net_value
+                
+                trades.append({
+                    'date': current_date,
+                    'action': 'SELL',
+                    'price': round(current_price, 4),
+                    'shares': round(shares, 4),
+                    'value': round(net_value, 2),
+                    'fee': round(fee_sell, 2),
+                    'profit': round(profit, 2),
+                    'reason': sell_reason
+                })
+                
+                shares = 0
+                position = 0
+        
+        # Calculate current portfolio value
+        current_value = capital + (shares * current_price if shares > 0 else 0)
+        equity_curve.append(current_value)
+    
+    # Final portfolio value
+    final_value = capital + (shares * prices.iloc[-1] if shares > 0 else 0)
+    total_return = (final_value - initial_capital) / initial_capital * 100
+    
+    # Calculate additional metrics
+    if len(equity_curve) > 0:
+        equity_series = pd.Series(equity_curve)
+        max_value = equity_series.cummax()
+        drawdown = (equity_series - max_value) / max_value * 100
+        max_drawdown = drawdown.min()
+    else:
+        max_drawdown = 0
+    
+    # Trade statistics
+    winning_trades = [t for t in trades if t.get('profit', 0) > 0]
+    losing_trades = [t for t in trades if t.get('profit', 0) < 0]
+    total_trades = len([t for t in trades if t['action'] == 'SELL'])
+    win_rate = len(winning_trades) / total_trades * 100 if total_trades > 0 else 0
+    
+    return {
+        "initial_capital": initial_capital,
+        "final_value": round(final_value, 2),
+        "total_return": round(total_return, 2),
+        "total_trades": total_trades,
+        "winning_trades": len(winning_trades),
+        "losing_trades": len(losing_trades),
+        "win_rate": round(win_rate, 2),
+        "max_drawdown": round(max_drawdown, 2),
+        "trades": trades,
+        "equity_curve": equity_curve,
+        "parameters": {
+            "period": period, 
+            "multiplier": multiplier, 
+            "stop_loss_pct": stop_loss_pct, 
+            "take_profit_pct": take_profit_pct, 
+            "transaction_cost_rate": transaction_cost_rate
+        }
+    }
+
 def human_format(num):
     if pd.isna(num):
         return ""
@@ -816,24 +962,54 @@ else:
     # For other markets, select first ticker as default
     default_tickers = [available_tickers[0]] if available_tickers else []
 
-tickers = st.multiselect(
-    f"เลือกหุ้น ({selected_market})",
+tickers_selected = st.multiselect(
+    f"เลือกหุ้น ({selected_market}) - หลายตัวได้",
     available_tickers,
     default=default_tickers,
-    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์"
+    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์ (สามารถเลือกหลายตัวได้)"
 )
+
+# Strategy selection
+strategy_choice = st.selectbox(
+    "เลือกกลยุทธ์การวิเคราะห์",
+    ["DCA + Buffett Analysis", "Bollinger Bands Backtest", "Both"],
+    index=0,
+    help="เลือกวิธีการวิเคราะห์: DCA+Buffett (แบบเดิม) หรือ Bollinger Bands (ใหม่) หรือทั้งคู่"
+)
+
 period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
-monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
+
+# DCA settings
+if strategy_choice in ["DCA + Buffett Analysis", "Both"]:
+    monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
+
+# Bollinger Bands settings
+if strategy_choice in ["Bollinger Bands Backtest", "Both"]:
+    st.subheader("Bollinger Bands Strategy Settings")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        bb_period = st.number_input("BB Period", min_value=5, max_value=50, value=20, help="ช่วงเวลาสำหรับ Moving Average")
+        bb_multiplier = st.number_input("BB Multiplier", min_value=1.0, max_value=3.0, value=2.0, step=0.1, help="ตัวคูณสำหรับ Standard Deviation")
+        initial_capital = st.number_input("Initial Capital", min_value=1000.0, max_value=100000.0, value=10000.0, step=1000.0, help="เงินทุนเริ่มต้น")
+    
+    with col2:
+        stop_loss_pct = st.number_input("Stop Loss (%)", min_value=1.0, max_value=20.0, value=5.0, step=0.5, help="Stop Loss เป็น %")
+        take_profit_pct = st.number_input("Take Profit (%)", min_value=5.0, max_value=50.0, value=10.0, step=1.0, help="Take Profit เป็น %")
+        transaction_cost_pct = st.number_input("Transaction Cost per side (%)", min_value=0.0, max_value=5.0, value=0.10, step=0.01, help="ค่าธรรมเนียมต่อฝั่ง เช่น 0.10 = 0.10%")
+
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
 if st.button("วิเคราะห์"):
     export_list = []
     results_table = []
+    summary_rows = []  # For summary sheet
+    all_trades_data = {}  # For individual ticker trade sheets
     total_invest = 0
     total_profit = 0
     total_div = 0
 
-    for ticker in tickers:
+    for ticker in tickers_selected:
         stock = yf.Ticker(ticker)
         fin = stock.financials
         bs = stock.balance_sheet
@@ -853,95 +1029,150 @@ if st.button("วิเคราะห์"):
             st.subheader(f"ข้อมูลบริษัท: {company_name}")
             st.write(f"**สัญลักษณ์:** {company_symbol}")
             
-            st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
+            # Initialize results containers
+            dca_result = None
+            bb_result = None
+            
+            # Run DCA + Buffett Analysis if selected
+            if strategy_choice in ["DCA + Buffett Analysis", "Both"]:
+                st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
 
-            # 1. Dividend Yield (% ต่อปี)
-            div_yield = info.get('dividendYield', None)
-            div_yield_pct = round(div_yield * 100, 2) if div_yield is not None else "N/A"
+                # 1. Dividend Yield (% ต่อปี)
+                div_yield = info.get('dividendYield', None)
+                div_yield_pct = round(div_yield * 100, 2) if div_yield is not None else "N/A"
 
-            # 2. วันที่ปันผลล่าสุด (Ex-Dividend Date)
-            ex_div = info.get('exDividendDate', None)
-            if ex_div:
-                try:
-                    ex_div_date = datetime.datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
-                except Exception:
-                    ex_div_date = str(ex_div)
-            else:
-                ex_div_date = "N/A"
+                # 2. วันที่ปันผลล่าสุด (Ex-Dividend Date)
+                ex_div = info.get('exDividendDate', None)
+                if ex_div:
+                    try:
+                        ex_div_date = datetime.datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
+                    except Exception:
+                        ex_div_date = str(ex_div)
+                else:
+                    ex_div_date = "N/A"
 
-            # 3. 52-Week High / Low
-            w52_high = info.get('fiftyTwoWeekHigh', "N/A")
-            w52_low = info.get('fiftyTwoWeekLow', "N/A")
+                # 3. 52-Week High / Low
+                w52_high = info.get('fiftyTwoWeekHigh', "N/A")
+                w52_low = info.get('fiftyTwoWeekLow', "N/A")
 
-            # 4. ราคาปิดล่าสุด, ราคาเปิดล่าสุด
-            last_close = info.get('previousClose', "N/A")
-            last_open = info.get('open', "N/A")
+                # 4. ราคาปิดล่าสุด, ราคาเปิดล่าสุด
+                last_close = info.get('previousClose', "N/A")
+                last_open = info.get('open', "N/A")
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Dividend Yield (%)", div_yield_pct)
-                st.metric("Ex-Dividend Date", ex_div_date)
-            with col2:
-                st.metric("52W High", w52_high)
-                st.metric("52W Low", w52_low)
-            with col3:
-                st.metric("ราคาปิดล่าสุด", last_close)
-                st.metric("ราคาเปิดล่าสุด", last_open)
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Dividend Yield (%)", div_yield_pct)
+                    st.metric("Ex-Dividend Date", ex_div_date)
+                with col2:
+                    st.metric("52W High", w52_high)
+                    st.metric("52W Low", w52_low)
+                with col3:
+                    st.metric("ราคาปิดล่าสุด", last_close)
+                    st.metric("ราคาเปิดล่าสุด", last_open)
 
-            # --------- สรุปปันผลย้อนหลัง 1 ปี ---------
-            st.subheader("ผลตอบแทนเงินปันผลย้อนหลัง 1 ปี (คำนวณจากราคาจริง)")
-            if not div.empty and not hist.empty:
-                last_year = hist.index[-1] - pd.DateOffset(years=1)
-                recent_div = div[div.index >= last_year]
-                total_div1y = recent_div.sum()
-                avg_price1y = hist['Close'][hist.index >= last_year].mean()
-                price_base = avg_price1y if (avg_price1y and avg_price1y > 0) else hist['Close'].iloc[-1]
-                manual_yield = (total_div1y / price_base) * 100 if price_base > 0 else np.nan
+                # --------- สรุปปันผลย้อนหลัง 1 ปี ---------
+                st.subheader("ผลตอบแทนเงินปันผลย้อนหลัง 1 ปี (คำนวณจากราคาจริง)")
+                if not div.empty and not hist.empty:
+                    last_year = hist.index[-1] - pd.DateOffset(years=1)
+                    recent_div = div[div.index >= last_year]
+                    total_div1y = recent_div.sum()
+                    avg_price1y = hist['Close'][hist.index >= last_year].mean()
+                    price_base = avg_price1y if (avg_price1y and avg_price1y > 0) else hist['Close'].iloc[-1]
+                    manual_yield = (total_div1y / price_base) * 100 if price_base > 0 else np.nan
 
-                st.markdown(f"""
-                <div style='font-size:1.1em;'>
-                <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div1y:.2f}</span><br>
-                <b>ราคาเฉลี่ย 1 ปี:</b> <span style='color:blue'>{price_base:.2f}</span><br>
-                <b>อัตราผลตอบแทน (Dividend Yield):</b> <span style='color:red;font-size:1.3em'>{manual_yield:.2f}%</span>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.info("ไม่มีข้อมูลปันผลย้อนหลัง (dividends) สำหรับหุ้นนี้")
+                    st.markdown(f"""
+                    <div style='font-size:1.1em;'>
+                    <b>เงินปันผลรวม 1 ปี:</b> <span style='color:green'>{total_div1y:.2f}</span><br>
+                    <b>ราคาเฉลี่ย 1 ปี:</b> <span style='color:blue'>{price_base:.2f}</span><br>
+                    <b>อัตราผลตอบแทน (Dividend Yield):</b> <span style='color:red;font-size:1.3em'>{manual_yield:.2f}%</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("ไม่มีข้อมูลปันผลย้อนหลัง (dividends) สำหรับหุ้นนี้")
 
-            st.subheader("Buffett 11 Checklist (แบบละเอียด)")
-            detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
-            badge = get_badge(detail['score_pct'])
-            st.markdown(f"**คะแนนภาพรวม:** {detail['score']} / {detail['evaluated']} ({detail['score_pct']}%) &nbsp;&nbsp;|&nbsp;&nbsp;**ป้ายคะแนน:** {badge}")
+                st.subheader("Buffett 11 Checklist (แบบละเอียด)")
+                detail = buffett_11_checks_detail(fin, bs, cf, div, hist)
+                badge = get_badge(detail['score_pct'])
+                st.markdown(f"**คะแนนภาพรวม:** {detail['score']} / {detail['evaluated']} ({detail['score_pct']}%) &nbsp;&nbsp;|&nbsp;&nbsp;**ป้ายคะแนน:** {badge}")
 
-            # ตารางรายละเอียดแต่ละข้อ
-            df_detail = pd.DataFrame([
-                {
-                    'ข้อ': i + 1,
-                    'รายการ': d['title'],
-                    'ผลลัพธ์': "✅ ผ่าน" if d['result'] == 1 else ("❌ ไม่ผ่าน" if d['result'] == 0 else "⚪ N/A"),
-                    'คำอธิบาย': d['desc']
-                }
-                for i, d in enumerate(detail['details'])
-            ])
-            st.dataframe(df_detail, hide_index=True)
+                # ตารางรายละเอียดแต่ละข้อ
+                df_detail = pd.DataFrame([
+                    {
+                        'ข้อ': i + 1,
+                        'รายการ': d['title'],
+                        'ผลลัพธ์': "✅ ผ่าน" if d['result'] == 1 else ("❌ ไม่ผ่าน" if d['result'] == 0 else "⚪ N/A"),
+                        'คำอธิบาย': d['desc']
+                    }
+                    for i, d in enumerate(detail['details'])
+                ])
+                st.dataframe(df_detail, hide_index=True)
 
-            st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
-            dca_result = dca_simulation(hist, monthly_invest, div)
-            st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
+                st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
+                dca_result = dca_simulation(hist, monthly_invest, div)
+                st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
-            # สะสมผลรวม
-            total_invest += dca_result["เงินลงทุนรวม"]
-            total_profit += dca_result["กำไร/ขาดทุน"]
-            total_div += dca_result["เงินปันผลรวม"]
+                # สะสมผลรวม DCA
+                total_invest += dca_result["เงินลงทุนรวม"]
+                total_profit += dca_result["กำไร/ขาดทุน"]
+                total_div += dca_result["เงินปันผลรวม"]
 
-            results_table.append({
-                "หุ้น": ticker,
-                "ชื่อบริษัท": company_name,
-                "เงินลงทุน": dca_result["เงินลงทุนรวม"],
-                "กำไร": dca_result["กำไร/ขาดทุน"],
-                "เงินปันผล": dca_result["เงินปันผลรวม"],
-                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"]
-            })
+            # Run Bollinger Bands Backtest if selected
+            if strategy_choice in ["Bollinger Bands Backtest", "Both"]:
+                st.subheader("Bollinger Bands Strategy Backtest")
+                
+                if not hist.empty:
+                    bb_result = bollinger_bands_strategy(
+                        hist, 
+                        period=bb_period,
+                        multiplier=bb_multiplier,
+                        initial_capital=initial_capital,
+                        stop_loss_pct=stop_loss_pct,
+                        take_profit_pct=take_profit_pct,
+                        transaction_cost_rate=transaction_cost_pct/100.0
+                    )
+                    
+                    if "error" not in bb_result:
+                        # Display Bollinger Bands results
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Initial Capital", f"${bb_result['initial_capital']:,.0f}")
+                            st.metric("Final Value", f"${bb_result['final_value']:,.0f}")
+                        with col2:
+                            st.metric("Total Return", f"{bb_result['total_return']:.2f}%")
+                            st.metric("Max Drawdown", f"{bb_result['max_drawdown']:.2f}%")
+                        with col3:
+                            st.metric("Total Trades", bb_result['total_trades'])
+                            st.metric("Win Rate", f"{bb_result['win_rate']:.2f}%")
+                        with col4:
+                            st.metric("Winning Trades", bb_result['winning_trades'])
+                            st.metric("Losing Trades", bb_result['losing_trades'])
+                        
+                        # Show trades table if there are trades
+                        if bb_result['trades']:
+                            st.subheader("Trade History")
+                            trades_df = pd.DataFrame(bb_result['trades'])
+                            st.dataframe(trades_df, hide_index=True)
+                            
+                            # Store trades for Excel export
+                            sanitized_ticker = ticker.replace(".", "_").replace("-", "_")[:30]  # Sanitize sheet name
+                            all_trades_data[sanitized_ticker] = trades_df
+                        
+                        # Add to summary
+                        summary_rows.append({
+                            'Ticker': ticker,
+                            'Company': company_name,
+                            'Strategy': 'Bollinger Bands',
+                            'Initial Capital': bb_result['initial_capital'],
+                            'Final Value': bb_result['final_value'],
+                            'Return (%)': bb_result['total_return'],
+                            'Total Trades': bb_result['total_trades'],
+                            'Win Rate (%)': bb_result['win_rate'],
+                            'Max Drawdown (%)': bb_result['max_drawdown']
+                        })
+                    else:
+                        st.error(f"Error in Bollinger Bands strategy: {bb_result['error']}")
+                else:
+                    st.warning("ไม่มีข้อมูลราคาหุ้นสำหรับ Bollinger Bands strategy")
 
             if not hist.empty:
                 st.line_chart(hist['Close'])
@@ -952,59 +1183,103 @@ if st.button("วิเคราะห์"):
                 st.subheader("งบกำไรขาดทุน (Income Statement)")
                 st.dataframe(df_human_format(fin))
 
-            export_list.append({
+            # Prepare export data
+            export_data = {
                 "หุ้น": ticker,
                 "ชื่อบริษัท": company_name,
-                "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
-                "จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
-                "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
-                "กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
-                "กำไร(%)": dca_result["กำไร(%)"],
-                "เงินปันผลรวม": dca_result["เงินปันผลรวม"],
-                "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not np.isnan(manual_yield) else "N/A",
-                "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not np.isnan(total_div1y) else "N/A",
-                "Dividend Yield (%)": div_yield_pct,
-                "Ex-Dividend Date": ex_div_date,
-                "52W High": w52_high,
-                "52W Low": w52_low,
-                "ราคาปิดล่าสุด": last_close,
-                "ราคาเปิดล่าสุด": last_open,
-                "คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
-                "เปอร์เซ็นต์": detail['score_pct'],
-                "ป้ายคะแนน": badge,
-            })
+            }
+            
+            if dca_result:
+                export_data.update({
+                    "DCA_เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
+                    "DCA_จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
+                    "DCA_มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
+                    "DCA_กำไร/ขาดทุน": dca_result["กำไร/ขาดทุน"],
+                    "DCA_กำไร(%)": dca_result["กำไร(%)"],
+                    "DCA_เงินปันผลรวม": dca_result["เงินปันผลรวม"],
+                    "Dividend Yield ย้อนหลัง 1 ปี (%)": manual_yield if not np.isnan(manual_yield) else "N/A",
+                    "เงินปันผลย้อนหลัง 1 ปี": total_div1y if not np.isnan(total_div1y) else "N/A",
+                })
+                
+                if 'detail' in locals():
+                    export_data.update({
+                        "Buffett_คะแนนรวม": f"{detail['score']}/{detail['evaluated']}",
+                        "Buffett_เปอร์เซ็นต์": detail['score_pct'],
+                        "Buffett_ป้ายคะแนน": badge,
+                    })
+            
+            if bb_result and "error" not in bb_result:
+                export_data.update({
+                    "BB_Initial_Capital": bb_result['initial_capital'],
+                    "BB_Final_Value": bb_result['final_value'],
+                    "BB_Return(%)": bb_result['total_return'],
+                    "BB_Total_Trades": bb_result['total_trades'],
+                    "BB_Win_Rate(%)": bb_result['win_rate'],
+                    "BB_Max_Drawdown(%)": bb_result['max_drawdown'],
+                })
+            
+            export_list.append(export_data)
+            
+            # Add to results table for DCA summary
+            if dca_result:
+                results_table.append({
+                    "หุ้น": ticker,
+                    "ชื่อบริษัท": company_name,
+                    "เงินลงทุน": dca_result["เงินลงทุนรวม"],
+                    "กำไร": dca_result["กำไร/ขาดทุน"],
+                    "เงินปันผล": dca_result["เงินปันผลรวม"],
+                    "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"]
+                })
 
-    # --- Export to Excel ---
+    # --- Enhanced Excel Export with Multiple Sheets ---
     if len(export_list) > 0:
-        df_export = pd.DataFrame(export_list)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_export.to_excel(writer, index=False, sheet_name='WarrenDCA')
+            # Main data sheet
+            df_export = pd.DataFrame(export_list)
+            df_export.to_excel(writer, index=False, sheet_name='WarrenDCA_All_Data')
+            
+            # Summary sheet for Bollinger Bands
+            if summary_rows:
+                summary_df = pd.DataFrame(summary_rows)
+                summary_df.to_excel(writer, index=False, sheet_name='Summary')
+            
+            # Individual ticker trade sheets
+            for ticker_name, trades_df in all_trades_data.items():
+                trades_df.to_excel(writer, index=False, sheet_name=f'Trades_{ticker_name}')
+        
         st.download_button(
-            label="📥 ดาวน์โหลดผลลัพธ์เป็น Excel",
+            label="📥 ดาวน์โหลดผลลัพธ์เป็น Excel (หลาย Sheets)",
             data=output.getvalue(),
-            file_name='WarrenDCA_Result.xlsx',
+            file_name='WarrenDCA_MultiStrategy_Result.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
+    # Display summary table for Bollinger Bands
+    if summary_rows:
+        st.header("สรุปผล Bollinger Bands Strategy")
+        summary_df = pd.DataFrame(summary_rows)
+        st.dataframe(summary_df, hide_index=True)
+
     # --- สรุปผลหุ้นที่เลือก DCA Simulator รวม ---
-    st.header("สรุปผลรวมหุ้นที่เลือก (DCA Simulator)")
-    st.write(f"💰 เงินลงทุนรวม: {total_invest:.2f}")
-    st.write(f"📈 กำไรรวม: {total_profit:.2f}")
-    st.write(f"💵 เงินปันผลรวมที่ได้รับ: {total_div:.2f}")
+    if strategy_choice in ["DCA + Buffett Analysis", "Both"] and results_table:
+        st.header("สรุปผลรวมหุ้นที่เลือก (DCA Simulator)")
+        st.write(f"💰 เงินลงทุนรวม: {total_invest:.2f}")
+        st.write(f"📈 กำไรรวม: {total_profit:.2f}")
+        st.write(f"💵 เงินปันผลรวมที่ได้รับ: {total_div:.2f}")
 
-    # ตารางสรุปหุ้นที่เลือก
-    if results_table:
-        st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
-        st.dataframe(pd.DataFrame(results_table))
+        # ตารางสรุปหุ้นที่เลือก
+        if results_table:
+            st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
+            st.dataframe(pd.DataFrame(results_table))
 
-    # --- Pie Chart ---
-    pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
-    pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
-    fig, ax = plt.subplots()
-    colors = ['#2196f3', '#4caf50', '#ffc107']
-    ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
-    ax.set_title("INVEST/Profit/DivyYield")
-    st.pyplot(fig)
+        # --- Pie Chart ---
+        pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
+        pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
+        fig, ax = plt.subplots()
+        colors = ['#2196f3', '#4caf50', '#ffc107']
+        ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
+        ax.set_title("INVEST/Profit/DivyYield")
+        st.pyplot(fig)
 
 st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
