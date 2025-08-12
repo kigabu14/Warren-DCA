@@ -19,7 +19,11 @@ class DCADataLoader:
     def __init__(self, cache_dir: str = "data/cache"):
         """Initialize data loader with cache directory"""
         self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"Error: Failed to create cache directory '{self.cache_dir}': {e}")
+            raise
         
     def _get_cache_path(self, ticker: str, period: str) -> Path:
         """Get cache file path for ticker and period"""
