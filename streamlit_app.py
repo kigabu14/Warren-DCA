@@ -3,12 +3,10 @@ import yfinance as yf
 import pandas as pd
 import io
 import datetime
-@@
- import numpy as np
- import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.pyplot as plt
  
- # ----------------- Helper Functions -----------------
-@@
+ # ----------------- Helper Functions -----------------#
  markets = {
      "US": us_stocks,
      "SET100": set100,
@@ -97,7 +95,7 @@ import datetime
 +    ai_ready = False
 +
  if menu == "คู่มือการใช้งาน":
-@@
+
              st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
              dca_result = dca_simulation(hist, monthly_invest, div)
              st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
