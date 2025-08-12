@@ -1227,7 +1227,8 @@ STRATEGIES = {
         'function': buy_and_hold_strategy,
         'parameters': {
             'stop_loss_pct': {'type': 'number', 'default': 5.0, 'min': 1.0, 'max': 20.0, 'step': 0.5, 'label': 'Stop Loss (%) - ไม่ใช้', 'disabled': True},
-            'take_profit_pct': {'type': 'number', 'default': 10.0, 'min': 1.0, 'max': 50.0, 'step': 0.5, 'label': 'Take Profit (%) - ไม่ใช้', 'disabled': True}
+            'stop_loss_pct': {'type': 'number', 'default': 5.0, 'min': 1.0, 'max': 20.0, 'step': 0.5, 'label': 'Stop Loss (%)', 'help': 'ไม่ใช้ (Not used in Buy & Hold strategy)', 'disabled': True},
+            'take_profit_pct': {'type': 'number', 'default': 10.0, 'min': 1.0, 'max': 50.0, 'step': 0.5, 'label': 'Take Profit (%)', 'help': 'ไม่ใช้ (Not used in Buy & Hold strategy)', 'disabled': True}
         }
     }
 }
