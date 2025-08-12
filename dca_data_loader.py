@@ -17,7 +17,7 @@ Responsibilities:
   - คืนข้อมูลที่พร้อมใช้ในงานจำลองกลยุทธ์ DCA
 """
 
-def __init__(self, cache_dir: str = "data/cache") -> None:
+ def __init__(self, cache_dir: str = "data/cache") -> None:
     """Initialize the loader and ensure cache directory exists."""
     self.cache_dir = Path(cache_dir)
     try:
@@ -29,12 +29,12 @@ def __init__(self, cache_dir: str = "data/cache") -> None:
 # -------------------------------
 # Internal cache helpers
 # -------------------------------
-def _get_cache_path(self, ticker: str, period: str) -> Path:
+ def _get_cache_path(self, ticker: str, period: str) -> Path:
     """Return the cache file path for a given ticker & period."""
     safe_ticker = ticker.replace("/", "-")
     return self.cache_dir / f"{safe_ticker}_{period}_data.pkl"
 
-def _is_cache_valid(self, cache_path: Path, max_age_hours: int = 1) -> bool:
+ def _is_cache_valid(self, cache_path: Path, max_age_hours: int = 1) -> bool:
     """Check whether a cache file exists and is younger than max_age_hours."""
     if not cache_path.exists():
         return False
@@ -44,7 +44,7 @@ def _is_cache_valid(self, cache_path: Path, max_age_hours: int = 1) -> bool:
 # -------------------------------
 # Fetching data
 # -------------------------------
-def fetch_ticker_data(self, ticker: str, period: str = "5y", max_cache_age_hrs: int = 1) -> Dict:
+ def fetch_ticker_data(self, ticker: str, period: str = "5y", max_cache_age_hrs: int = 1) -> Dict:
     """Fetch comprehensive data for a single ticker.
 
     Returns a dict containing:
@@ -109,7 +109,7 @@ def fetch_ticker_data(self, ticker: str, period: str = "5y", max_cache_age_hrs: 
     except Exception as e:
         raise ValueError(f"Failed to fetch data for {ticker}: {e}") from e
 
-def fetch_multiple_tickers(self, tickers: List[str], period: str = "5y", max_cache_age_hrs: int = 1) -> Dict[str, Dict]:
+ def fetch_multiple_tickers(self, tickers: List[str], period: str = "5y", max_cache_age_hrs: int = 1) -> Dict[str, Dict]:
     """Fetch data for multiple tickers; returns mapping ticker -> data dict."""
     results: Dict[str, Dict] = {}
     errors: Dict[str, str] = {}
@@ -126,12 +126,12 @@ def fetch_multiple_tickers(self, tickers: List[str], period: str = "5y", max_cac
 # -------------------------------
 # Data extraction for DCA simulation
 # -------------------------------
-def get_price_data_for_dca(
+ def get_price_data_for_dca(
     self,
     ticker_data: Dict,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-) -> pd.DataFrame:
+ ) -> pd.DataFrame:
     """Return cleaned OHLCV slice prepared for DCA simulation."""
     hist: pd.DataFrame = ticker_data["historical_prices"].copy()
     if hist.empty:
@@ -158,12 +158,12 @@ def get_price_data_for_dca(
     )
     return dca_df
 
-def get_dividend_data_for_dca(
+ def get_dividend_data_for_dca(
     self,
     ticker_data: Dict,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-) -> pd.DataFrame:
+ ) -> pd.DataFrame:
     """Return dividend data (Date, Dividend) filtered by optional range."""
     dividends: pd.Series = ticker_data["dividends"].copy()
     if dividends.empty:
@@ -177,7 +177,7 @@ def get_dividend_data_for_dca(
 # -------------------------------
 # Validation utilities
 # -------------------------------
-def validate_ticker_list(self, tickers: List[str]) -> Tuple[List[str], List[str]]:
+ def validate_ticker_list(self, tickers: List[str]) -> Tuple[List[str], List[str]]:
     """Validate tickers by requesting a short 5d history."""
     valid: List[str] = []
     invalid: List[str] = []
@@ -195,7 +195,7 @@ def validate_ticker_list(self, tickers: List[str]) -> Tuple[List[str], List[str]
 # -------------------------------
 # Cache management
 # -------------------------------
-def clear_cache(self, ticker: Optional[str] = None) -> None:
+ def clear_cache(self, ticker: Optional[str] = None) -> None:
     """Clear all cache files or only those for a specific ticker."""
     if ticker:
         for cache_file in self.cache_dir.glob(f"{ticker}_*.pkl"):
@@ -210,7 +210,7 @@ def clear_cache(self, ticker: Optional[str] = None) -> None:
             except FileNotFoundError:
                 pass
 
-def get_cache_info(self) -> Dict:
+ def get_cache_info(self) -> Dict:
     """Return metadata about current cache contents."""
     cache_files = list(self.cache_dir.glob("*.pkl"))
     info: Dict[str, object] = {
@@ -237,6 +237,6 @@ def get_cache_info(self) -> Dict:
 # -------------------------------
 # Backwards compatibility
 # -------------------------------
-def fetch(self, ticker: str, period: str = "5y"):
+ def fetch(self, ticker: str, period: str = "5y"):
     """Alias kept for backward compatibility with older code paths."""
     return self.fetch_ticker_data(ticker, period)
