@@ -500,7 +500,7 @@ def calc_profit_factor(trades):
     gross_loss = abs(sum(trade['profit'] for trade in trades if trade.get('profit', 0) < 0))
     
     if gross_loss == 0:
-        return None if gross_profit == 0 else float('inf')
+        return None if gross_profit == 0 else "Infinity"  # Changed from float('inf') to "Infinity" for UI consistency
     
     return gross_profit / gross_loss
 
