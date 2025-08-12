@@ -3,6 +3,36 @@ import xlsxwriter # library to write to excel
 import pandas as pd # data science library
 import os
 
+def strip_timezone(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove timezone information from DataFrame to prevent Excel export errors.
+    
+    Args:
+        df: DataFrame that may contain timezone-aware datetime columns or index
+        
+    Returns:
+        DataFrame with timezone information stripped
+    """
+    df = df.copy()
+    
+    # Strip timezone from DatetimeIndex if present
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    
+    # Strip timezone from datetime columns
+    for col in df.select_dtypes(include=['datetimetz']).columns:
+        df[col] = df[col].dt.tz_localize(None)
+    
+    # Handle object columns that may contain timezone-aware timestamps
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            # Check if this column contains datetime objects
+            sample = next((v for v in df[col] if isinstance(v, pd.Timestamp)), None)
+            if sample is not None and sample.tz is not None:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.tz_localize(None)
+    
+    return df
+
 class Excel():
 
     def __init__(self, parameterResults: pd.DataFrame) -> None:
@@ -21,8 +51,16 @@ class Excel():
         dataframes = []
         for ticker in self.parameterResults.keys():
             dataframe = self.parameterResults[ticker]
+            # Strip timezone information to prevent Excel export errors
+            dataframe = strip_timezone(dataframe)
             dataframes.append(dataframe)
         mergedDataFrame = pd.concat(dataframes)
+        # Ensure merged dataframe is also timezone-stripped
+        mergedDataFrame = strip_timezone(mergedDataFrame)
+        
+        # Defensive check: assert no timezone-aware dtypes before writing
+        tz_aware_cols = mergedDataFrame.select_dtypes(include=['datetimetz']).columns
+        assert len(tz_aware_cols) == 0, f"Found timezone-aware columns before Excel export: {list(tz_aware_cols)}"
     
         # begin writing
         writer = pd.ExcelWriter('data/dca-parameters.xlsx', engine = 'xlsxwriter')
