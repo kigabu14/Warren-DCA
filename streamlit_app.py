@@ -413,9 +413,27 @@ markets = {
     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
 }
 
+# Import new DCA modules
+try:
+    from dca_data_loader import DCADataLoader
+    from dca_strategies import DCAStrategy, DCAStrategyFactory
+    from dca_optimizer import DCAOptimizer
+    from dca_metrics import DCAMetrics
+    from ai_dca_helper import DCAAnalysisHelper
+    DCA_AI_AVAILABLE = True
+except ImportError as e:
+    print(f"DCA AI modules not available: {e}")
+    DCA_AI_AVAILABLE = False
+
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+
+# Menu options
+menu_options = ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"]
+if DCA_AI_AVAILABLE:
+    menu_options.insert(1, "DCA AI Optimizer")
+
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", menu_options)
 
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
@@ -450,6 +468,467 @@ if menu == "คู่มือการใช้งาน":
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
 """)
+    st.stop()
+
+# DCA AI Optimizer Menu
+if menu == "DCA AI Optimizer":
+    st.header("🤖 DCA AI Optimizer - เพิ่มประสิทธิภาพ DCA ด้วย AI")
+    
+    if not DCA_AI_AVAILABLE:
+        st.error("ระบบ DCA AI ไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ")
+        st.stop()
+    
+    st.markdown("""
+    ### ฟีเจอร์ใหม่: การเพิ่มประสิทธิภาพ DCA แบบอัจฉริยะ
+    
+    **ความสามารถหลัก:**
+    - 🎯 วิเคราะห์หลายหุ้นพร้อมกัน (Multi-ticker)
+    - 📊 กลยุทธ์ DCA ขั้นสูง 5 แบบ
+    - 🔍 เพิ่มประสิทธิภาพพารามิเตอร์อัตโนมัติ
+    - 🤖 วิเคราะห์ผลลัพธ์ด้วย AI (ภาษาไทย)
+    - 📈 คาดการณ์จุดคุ้มทุน (Break-even Forecast)
+    - 📋 Export ไฟล์ Excel แบบละเอียด
+    """)
+    
+    # Initialize components
+    data_loader = DCADataLoader()
+    optimizer = DCAOptimizer()
+    ai_helper = DCAAnalysisHelper()
+    
+    # Multi-ticker selection
+    st.subheader("📈 เลือกหุ้นสำหรับวิเคราะห์")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        # Market selection for DCA AI
+        selected_market_ai = st.selectbox(
+            "เลือกตลาดหุ้น",
+            options=list(markets.keys()),
+            index=0,
+            key="ai_market",
+            help="เลือกตลาดหุ้นสำหรับ DCA AI Optimizer"
+        )
+        
+        available_tickers_ai = markets[selected_market_ai]
+        
+        # Default selection
+        default_ai = []
+        if selected_market_ai == "US":
+            default_ai = ["AAPL", "MSFT"]
+        elif selected_market_ai == "SET100":
+            default_ai = ["PTT.BK", "CPALL.BK"]
+        else:
+            default_ai = available_tickers_ai[:2] if len(available_tickers_ai) >= 2 else available_tickers_ai
+        
+        selected_tickers = st.multiselect(
+            f"เลือกหุ้น ({selected_market_ai})",
+            available_tickers_ai,
+            default=default_ai,
+            help="เลือกหุ้นที่ต้องการเพิ่มประสิทธิภาพ DCA (แนะนำ 2-5 หุ้น)",
+            key="ai_tickers"
+        )
+    
+    with col2:
+        # Period and budget settings
+        period_ai = st.selectbox(
+            "ช่วงเวลาข้อมูล",
+            ["1y", "2y", "3y", "5y"],
+            index=3,
+            key="ai_period",
+            help="ช่วงเวลาข้อมูลประวัติสำหรับการวิเคราะห์"
+        )
+        
+        budget_mode = st.radio(
+            "โหมดงบประมาณ",
+            ["งบประมาณรวม", "งบประมาณต่อหุ้น"],
+            key="budget_mode",
+            help="เลือกวิธีการกำหนดงบประมาณการลงทุน"
+        )
+        
+        if budget_mode == "งบประมาณรวม":
+            total_budget = st.number_input(
+                "งบประมาณรวมต่อเดือน",
+                min_value=500.0,
+                max_value=50000.0,
+                value=5000.0,
+                step=500.0,
+                key="total_budget"
+            )
+        else:
+            per_ticker_budget = st.number_input(
+                "งบประมาณต่อหุ้นต่อเดือน",
+                min_value=200.0,
+                max_value=10000.0,
+                value=1000.0,
+                step=100.0,
+                key="per_ticker_budget"
+            )
+    
+    # Strategy Configuration
+    st.subheader("⚙️ การตั้งค่ากลยุทธ์ DCA")
+    
+    # Get available strategies
+    available_strategies = DCAStrategyFactory.get_available_strategies()
+    
+    strategy_configs = []
+    
+    # Create tabs for strategy configuration
+    strategy_tabs = st.tabs([f"{s[1]}" for s in available_strategies])
+    
+    for i, (strategy_enum, strategy_name, strategy_desc) in enumerate(available_strategies):
+        with strategy_tabs[i]:
+            st.markdown(f"**{strategy_desc}**")
+            
+            enabled = st.checkbox(
+                f"เปิดใช้งาน {strategy_name}",
+                value=(i < 3),  # Enable first 3 strategies by default
+                key=f"enable_{strategy_enum.value}"
+            )
+            
+            if enabled:
+                # Default parameters
+                default_params = DCAStrategyFactory.get_default_parameters(strategy_enum)
+                
+                # Optimization settings
+                optimization_type = st.radio(
+                    "วิธีการเพิ่มประสิทธิภาพ",
+                    ["Grid Search", "Random Search", "Bayesian-like"],
+                    key=f"opt_type_{strategy_enum.value}",
+                    help="Grid Search: ทดสอบทุกชุดพารามิเตอร์, Random Search: สุ่มตัวอย่าง, Bayesian-like: ปรับปรุงแบบวนซ้ำ"
+                )
+                
+                if optimization_type == "Random Search":
+                    num_samples = st.slider(
+                        "จำนวนตัวอย่างสุ่ม",
+                        min_value=20,
+                        max_value=200,
+                        value=50,
+                        key=f"samples_{strategy_enum.value}"
+                    )
+                elif optimization_type == "Bayesian-like":
+                    num_iterations = st.slider(
+                        "จำนวนรอบการปรับปรุง",
+                        min_value=5,
+                        max_value=30,
+                        value=15,
+                        key=f"iterations_{strategy_enum.value}"
+                    )
+                
+                # Add to configs
+                config = {
+                    'strategy': strategy_enum,
+                    'enabled': True,
+                    'optimization': {
+                        'type': optimization_type.lower().replace('-', '_').replace(' ', '_'),
+                    }
+                }
+                
+                if optimization_type == "Random Search":
+                    config['optimization']['num_samples'] = num_samples
+                elif optimization_type == "Bayesian-like":
+                    config['optimization']['num_iterations'] = num_iterations
+                
+                strategy_configs.append(config)
+    
+    # Ranking criteria
+    st.subheader("🏆 เกณฑ์การจัดอันดับ")
+    ranking_criteria = st.selectbox(
+        "เกณฑ์หลักในการจัดอันดับกลยุทธ์",
+        [
+            "total_return",  # ผลตอบแทนรวมสูงสุด
+            "cost_basis",    # ราคาเฉลี่ยต่ำสุด
+            "sharpe_ratio",  # Risk-adjusted return สูงสุด
+            "break_even_speed"  # คุ้มทุนเร็วที่สุด
+        ],
+        format_func=lambda x: {
+            "total_return": "ผลตอบแทนรวมสูงสุด",
+            "cost_basis": "ราคาเฉลี่ยต่ำสุด (ประสิทธิภาพการซื้อ)",
+            "sharpe_ratio": "ผลตอบแทนปรับความเสี่ยงสูงสุด",
+            "break_even_speed": "คุ้มทุนเร็วที่สุด"
+        }[x],
+        key="ranking_criteria"
+    )
+    
+    # AI Configuration
+    st.subheader("🤖 การตั้งค่า AI")
+    
+    ai_provider = st.selectbox(
+        "เลือก AI Provider",
+        ["ไม่ใช้ AI", "Google Gemini", "OpenAI GPT"],
+        key="ai_provider"
+    )
+    
+    ai_api_key = None
+    if ai_provider != "ไม่ใช้ AI":
+        ai_api_key = st.text_input(
+            f"API Key สำหรับ {ai_provider}",
+            type="password",
+            key="ai_api_key",
+            help="API Key จะไม่ถูกบันทึกในระบบ"
+        )
+        
+        if ai_api_key:
+            if ai_provider == "Google Gemini":
+                if ai_helper.setup_gemini(ai_api_key):
+                    st.success("✅ Gemini API พร้อมใช้งาน")
+                else:
+                    st.error("❌ ไม่สามารถเชื่อมต่อ Gemini API")
+            elif ai_provider == "OpenAI GPT":
+                if ai_helper.setup_openai(ai_api_key):
+                    st.success("✅ OpenAI API พร้อมใช้งาน")
+                else:
+                    st.error("❌ ไม่สามารถเชื่อมต่อ OpenAI API")
+    
+    # Run Optimization
+    st.subheader("🚀 เรียกใช้การเพิ่มประสิทธิภาพ")
+    
+    if st.button("🔥 เริ่มการเพิ่มประสิทธิภาพ DCA", key="run_optimization"):
+        if not selected_tickers:
+            st.error("กรุณาเลือกหุ้นอย่างน้อย 1 ตัว")
+        elif not strategy_configs:
+            st.error("กรุณาเปิดใช้งานกลยุทธ์อย่างน้อย 1 แบบ")
+        else:
+            # Show progress
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                # Step 1: Load data
+                status_text.text("📥 กำลังโหลดข้อมูลหุ้น...")
+                progress_bar.progress(10)
+                
+                # Validate tickers first
+                valid_tickers, invalid_tickers = data_loader.validate_ticker_list(selected_tickers)
+                
+                if invalid_tickers:
+                    st.warning(f"ไม่สามารถโหลดข้อมูลหุ้น: {', '.join(invalid_tickers)}")
+                
+                if not valid_tickers:
+                    st.error("ไม่สามารถโหลดข้อมูลหุ้นใดๆ ได้")
+                    st.stop()
+                
+                # Load ticker data
+                ticker_data_dict = {}
+                for i, ticker in enumerate(valid_tickers):
+                    status_text.text(f"📥 กำลังโหลดข้อมูล {ticker}...")
+                    progress_bar.progress(10 + (i + 1) * 20 / len(valid_tickers))
+                    
+                    try:
+                        ticker_data = data_loader.fetch_ticker_data(ticker, period_ai)
+                        price_data = data_loader.get_price_data_for_dca(ticker_data)
+                        dividend_data = data_loader.get_dividend_data_for_dca(ticker_data)
+                        
+                        ticker_data_dict[ticker] = {
+                            'price_data': price_data,
+                            'dividend_data': dividend_data,
+                            'raw_data': ticker_data
+                        }
+                    except Exception as e:
+                        st.warning(f"ไม่สามารถโหลดข้อมูล {ticker}: {str(e)}")
+                
+                if not ticker_data_dict:
+                    st.error("ไม่สามารถโหลดข้อมูลหุ้นใดๆ ได้")
+                    st.stop()
+                
+                # Step 2: Run optimization
+                status_text.text("🔍 กำลังเพิ่มประสิทธิภาพกลยุทธ์...")
+                progress_bar.progress(40)
+                
+                optimization_results = optimizer.optimize_multiple_tickers(
+                    ticker_data_dict,
+                    strategy_configs,
+                    ranking_criteria
+                )
+                
+                progress_bar.progress(70)
+                
+                # Step 3: Generate AI analysis (if enabled)
+                ai_analysis = None
+                if ai_provider != "ไม่ใช้ AI" and ai_api_key:
+                    status_text.text("🤖 กำลังวิเคราะห์ผลลัพธ์ด้วย AI...")
+                    progress_bar.progress(85)
+                    
+                    try:
+                        ai_analysis = ai_helper.analyze_multi_ticker(
+                            optimization_results,
+                            ai_provider.lower().replace(' ', '_')
+                        )
+                    except Exception as e:
+                        st.warning(f"การวิเคราะห์ AI ล้มเหลว: {str(e)}")
+                
+                # Step 4: Display results
+                status_text.text("✅ เสร็จสิ้น!")
+                progress_bar.progress(100)
+                
+                # Display results
+                st.success("🎉 การเพิ่มประสิทธิภาพเสร็จสิ้น!")
+                
+                # Summary table
+                st.subheader("📊 สรุปผลลัพธ์")
+                
+                summary_data = []
+                for ticker, best_config in optimization_results.get('summary_by_ticker', {}).items():
+                    if best_config:
+                        metrics = best_config['metrics']
+                        summary_data.append({
+                            'หุ้น': ticker,
+                            'กลยุทธ์ที่ดีที่สุด': best_config['strategy'],
+                            'ผลตอบแทน (%)': f"{metrics.get('total_return_pct', 0):.2f}%",
+                            'ราคาเฉลี่ย': f"{metrics.get('cost_basis', 0):.2f}",
+                            'Sharpe Ratio': f"{metrics.get('sharpe_ratio', 0):.3f}",
+                            'คุ้มทุนแล้ว': '✅' if metrics.get('break_even_achieved', False) else '❌',
+                            'Max Drawdown': f"{metrics.get('max_drawdown_pct', 0):.2f}%"
+                        })
+                
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    st.dataframe(summary_df, use_container_width=True)
+                
+                # Detailed results for each ticker
+                st.subheader("📈 ผลลัพธ์รายละเอียด")
+                
+                for ticker in ticker_data_dict.keys():
+                    if ticker in optimization_results.get('detailed_results', {}):
+                        ticker_results = optimization_results['detailed_results'][ticker]
+                        
+                        with st.expander(f"📊 รายละเอียด {ticker}", expanded=False):
+                            for strategy_name, strategy_result in ticker_results.items():
+                                if 'error' not in strategy_result:
+                                    st.markdown(f"**{strategy_name}**")
+                                    
+                                    best_result = strategy_result.get('best_metrics', {})
+                                    if best_result:
+                                        col1, col2, col3, col4 = st.columns(4)
+                                        with col1:
+                                            st.metric("ผลตอบแทน", f"{best_result.get('total_return_pct', 0):.2f}%")
+                                        with col2:
+                                            st.metric("ราคาเฉลี่ย", f"{best_result.get('cost_basis', 0):.2f}")
+                                        with col3:
+                                            st.metric("เงินลงทุนรวม", f"{best_result.get('total_invested', 0):,.0f}")
+                                        with col4:
+                                            st.metric("Max Drawdown", f"{best_result.get('max_drawdown_pct', 0):.2f}%")
+                                        
+                                        # Parameters
+                                        params = strategy_result.get('best_parameters', {})
+                                        if params:
+                                            st.json(params)
+                
+                # AI Analysis
+                if ai_analysis:
+                    st.subheader("🤖 การวิเคราะห์ด้วย AI")
+                    st.markdown(ai_analysis)
+                
+                # Export functionality
+                st.subheader("📥 ดาวน์โหลดผลลัพธ์")
+                
+                try:
+                    # Create Excel export
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        # Summary sheet
+                        if summary_data:
+                            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                        
+                        # Detailed results for each ticker
+                        for ticker in ticker_data_dict.keys():
+                            if ticker in optimization_results.get('detailed_results', {}):
+                                ticker_results = optimization_results['detailed_results'][ticker]
+                                
+                                all_results = []
+                                for strategy_name, strategy_result in ticker_results.items():
+                                    if 'error' not in strategy_result:
+                                        for result in strategy_result.get('all_results', []):
+                                            result_copy = result.copy()
+                                            result_copy['strategy'] = strategy_name
+                                            all_results.append(result_copy)
+                                
+                                if all_results:
+                                    ticker_df = pd.DataFrame(all_results)
+                                    # Clean up the dataframe for export
+                                    export_columns = [
+                                        'strategy', 'rank', 'total_return_pct', 'cost_basis',
+                                        'total_invested', 'max_drawdown_pct', 'sharpe_ratio',
+                                        'break_even_achieved', 'time_in_profit_pct', 'parameters'
+                                    ]
+                                    export_df = ticker_df[[col for col in export_columns if col in ticker_df.columns]]
+                                    
+                                    sheet_name = ticker.replace('.', '_')[:31]  # Excel sheet name limit
+                                    export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        
+                        # AI Analysis sheet
+                        if ai_analysis:
+                            ai_df = pd.DataFrame([{'AI_Analysis': ai_analysis}])
+                            ai_df.to_excel(writer, sheet_name='AI_Analysis', index=False)
+                    
+                    st.download_button(
+                        label="📥 ดาวน์โหลดผลลัพธ์ Excel",
+                        data=output.getvalue(),
+                        file_name=f'DCA_Optimization_Results_{datetime.datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+                
+                except Exception as e:
+                    st.warning(f"ไม่สามารถสร้างไฟล์ Excel: {str(e)}")
+                
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาด: {str(e)}")
+                st.exception(e)
+    
+    # Quick compare single ticker
+    st.subheader("⚡ เปรียบเทียบกลยุทธ์แบบด่วน")
+    st.markdown("เปรียบเทียบกลยุทธ์ DCA ทั้งหมดสำหรับหุ้น 1 ตัว (ใช้พารามิเตอร์เริ่มต้น)")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        quick_ticker = st.selectbox(
+            "เลือกหุ้น",
+            available_tickers_ai,
+            key="quick_ticker"
+        )
+    with col2:
+        quick_period = st.selectbox(
+            "ช่วงเวลา",
+            ["1y", "2y", "3y", "5y"],
+            index=2,
+            key="quick_period"
+        )
+    with col3:
+        if st.button("🚀 เปรียบเทียบด่วน", key="quick_compare"):
+            try:
+                with st.spinner("กำลังเปรียบเทียบ..."):
+                    # Load data
+                    ticker_data = data_loader.fetch_ticker_data(quick_ticker, quick_period)
+                    price_data = data_loader.get_price_data_for_dca(ticker_data)
+                    dividend_data = data_loader.get_dividend_data_for_dca(ticker_data)
+                    
+                    # Compare strategies
+                    comparison_result = optimizer.compare_strategies_for_ticker(
+                        quick_ticker, price_data, dividend_data
+                    )
+                    
+                    if 'error' not in comparison_result:
+                        st.success(f"✅ เปรียบเทียบเสร็จสิ้น - กลยุทธ์ที่ดีที่สุด: **{comparison_result['best_strategy']}**")
+                        
+                        # Show comparison table
+                        comparison_data = []
+                        for result in comparison_result['all_results']:
+                            comparison_data.append({
+                                'กลยุทธ์': result['strategy_type'],
+                                'อันดับ': result['rank'],
+                                'ผลตอบแทน (%)': f"{result.get('total_return_pct', 0):.2f}%",
+                                'ราคาเฉลี่ย': f"{result.get('cost_basis', 0):.2f}",
+                                'Sharpe Ratio': f"{result.get('sharpe_ratio', 0):.3f}",
+                                'Max Drawdown': f"{result.get('max_drawdown_pct', 0):.2f}%"
+                            })
+                        
+                        comparison_df = pd.DataFrame(comparison_data)
+                        st.dataframe(comparison_df, use_container_width=True)
+                    else:
+                        st.error(f"การเปรียบเทียบล้มเหลว: {comparison_result['error']}")
+                        
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาด: {str(e)}")
+    
     st.stop()
 
 # Market selection
