@@ -640,7 +640,6 @@ def bollinger_bands_strategy(data, period=20, multiplier=2, stop_loss_pct=5, tak
             
             position = 0
             entry_price = 0
-        
         # Update equity curve
         current_equity = capital + (position * current_price)
         equity_curve.append(current_equity)
