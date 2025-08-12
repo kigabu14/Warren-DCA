@@ -615,7 +615,6 @@ def bollinger_bands_strategy(data, period=20, multiplier=2, stop_loss_pct=5, tak
                 })
                 
                 position = 0
-        
         if position > 0 and current_price >= upper_band.iloc[i]:
             # Sell signal
             sell_value = position * current_price
