@@ -412,7 +412,7 @@ markets = {
     "Australia": australian_stocks,
     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
 }
-
+   DCA_AI_AVAILABLE = True
 # Import new DCA modules
 try:
     from dca_data_loader import DCADataLoader
@@ -420,7 +420,7 @@ try:
     from dca_optimizer import DCAOptimizer
     from dca_metrics import DCAMetrics
     from ai_dca_helper import DCAAnalysisHelper
-    DCA_AI_AVAILABLE = True
+ 
 except ImportError as e:
     print(f"DCA AI modules not available: {e}")
     DCA_AI_AVAILABLE = False
@@ -429,7 +429,8 @@ except ImportError as e:
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
 
 # Menu options
-menu_options = ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"]
+menu_options = ["วิเคราะห์หุ้น", "คู่มือการใช้งาน", "DCA AI Optimizer"]
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", menu_options)
 if DCA_AI_AVAILABLE:
     menu_options.insert(1, "DCA AI Optimizer")
 
