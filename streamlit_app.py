@@ -1101,7 +1101,7 @@ def buy_and_hold_strategy(data, transaction_cost_rate=0.1, initial_capital=10000
     first_price = prices.iloc[0]
     first_date = data.index[0]
     
-    shares_to_buy = int(initial_capital / first_price)
+    shares_to_buy = int(np.floor(initial_capital / first_price))
     purchase_value = shares_to_buy * first_price
     buy_fee = apply_transaction_cost(purchase_value, transaction_cost_rate)
     total_cost = purchase_value + buy_fee
