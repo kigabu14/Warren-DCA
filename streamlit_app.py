@@ -104,7 +104,7 @@ def test_gemini_connection(api_key: str) -> Tuple[bool, str]:
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content("Hello, respond with just 'OK' if you can read this.")
+        response = model.generate_content("Hello.")
         return True, "✅ การเชื่อมต่อสำเร็จ"
     except Exception as e:
         return False, f"❌ การเชื่อมต่อล้มเหลว: {str(e)}"
