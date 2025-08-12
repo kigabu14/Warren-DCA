@@ -6,14 +6,18 @@ import datetime
 from datetime import datetime as dt
 import numpy as np
 import matplotlib.pyplot as plt
-
+from dca_data_loader import DCADataLoader
+from dca_strategies import DCAStrategy, DCAStrategyFactory
+from dca_optimizer import DCAOptimizer
+from dca_metrics import DCAMetrics
+from ai_dca_helper import DCAAnalysisHelper
 # ----------------- Gemini AI Integration -----------------
 try:
     import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     genai = None
-    GEMINI_AVAILABLE = False
+    GEMINI_AVAILABLE = True
 
 
 def setup_gemini(api_key: str) -> bool:
