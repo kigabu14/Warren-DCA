@@ -787,6 +787,9 @@ if menu == "ข่าว & Sentiment":
                 # Create the ticker object once and reuse it
                 stock = yf.Ticker(selected_ticker)
                 news = stock.news
+                # Use cached function to get news and reduce API calls
+                news = get_stock_news(selected_ticker)
+                
                 
                 if not news:
                     st.warning("ไม่พบข่าวสำหรับหุ้นนี้")
