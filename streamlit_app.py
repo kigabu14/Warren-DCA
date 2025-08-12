@@ -112,7 +112,7 @@ def bollinger_bands_strategy(
                 
                 if sell_signal:
                     capital = shares * current_price
-                    profit = capital - last_buy_value if last_buy_value is not None else 0
+                    profit = capital - (shares * entry_price)
                     
                     trades.append({
                         'date': current_date,
