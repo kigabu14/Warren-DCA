@@ -8,65 +8,11 @@ import matplotlib.pyplot as plt
  
 
  
-+# ----------------- Gemini AI Integration (Added) -----------------
-+try:
-+    import google.generativeai as genai
-+    GEMINI_AVAILABLE = True
-+except ImportError:
-+    genai = None
-+    GEMINI_AVAILABLE = False
-+
-+def setup_gemini(api_key: str) -> bool:
-+    """Configure Gemini with provided API key."""
-+    if not (GEMINI_AVAILABLE and api_key):
-+        return False
-+    try:
-+        genai.configure(api_key=api_key)
-+        return True
-+    except Exception:
-+        return False
-+
-+def gemini_analyze_company(ticker: str, company_name: str, buffett_detail: dict, dca_result: dict) -> str:
-+    """Generate Thai analysis combining Buffett checklist + DCA simulation."""
-+    if not GEMINI_AVAILABLE:
-+        return "❌ ยังไม่ได้ติดตั้ง google-generativeai (pip install google-generativeai)"
-+    try:
-+        details = buffett_detail.get('details', [])
-+        passed = sum(1 for d in details if d['result'] == 1)
-+        failed = sum(1 for d in details if d['result'] == 0)
-+        na = sum(1 for d in details if d['result'] == -1)
-+        failed_list = [d['title'] for d in details if d['result'] == 0]
-+        failed_text = ", ".join(failed_list) if failed_list else "ผ่านทุกข้อ หรือไม่มีข้อไม่ผ่านที่ระบุ"
-+        score_pct = buffett_detail.get('score_pct', 0)
-+
-+        prompt = f"""
-+วิเคราะห์หุ้น {ticker} ({company_name}) ภาษาไทยอย่างกระชับและมีโครงสร้าง:
-+สรุป Buffett Checklist:
-+- ผ่าน {passed} ไม่ผ่าน {failed} ไม่มีข้อมูล {na} คะแนนรวม {score_pct}%
-+- ข้อไม่ผ่าน: {failed_text}
-+
-+สรุป DCA (จำลอง):
-+- เงินลงทุนรวม: {dca_result.get('เงินลงทุนรวม')}
-+- มูลค่าปัจจุบัน: {dca_result.get('มูลค่าปัจจุบัน')}
-+- กำไร/ขาดทุน: {dca_result.get('กำไร/ขาดทุน')} ({dca_result.get('กำไร(%)')}%)
-+- เงินปันผลรวม: {dca_result.get('เงินปันผลรวม')}
-+- ราคาเฉลี่ยที่ซื้อ: {dca_result.get('ราคาเฉลี่ยที่ซื้อ')}
-+- ราคาปิดล่าสุด: {dca_result.get('ราคาปิดล่าสุด')}
-+
-+ให้ออกผลลัพธ์หัวข้อ:
-+1) ภาพรวมธุรกิจ/คุณภาพ (อ้างอิงคะแนน)
-+2) จุดเด่น
-+3) ความเสี่ยง / ข้อควรระวัง (ให้แปลข้อไม่ผ่านเป็นประเด็น)
-+4) มุมมองต่อกลยุทธ์ DCA (ไม่ใช่คำแนะนำ)
-+5) สรุปสุดท้าย (Disclaimer ชัดเจนว่าไม่ใช่คำแนะนำลงทุน)
-+อย่าเพิ่มข้อมูลที่ไม่มีในชุดตัวเลขนี้ (หลีกเลี่ยงการเดาเชิงปริมาณใหม่)
-+"""
-+        model = genai.GenerativeModel("gemini-1.5-flash")
-+        resp = model.generate_content(prompt)
-+        return resp.text or "(ไม่มีข้อความตอบกลับจากโมเดล)"
-+    except Exception as e:
-+        return f"⚠️ Gemini error: {str(e)[:180]}"
-+
+try:import google.generativeai as genaiGEMINI_AVAILABLE = Trueexcept ImportError:genai = NoneGEMINI_AVAILABLE = False
+
+def setup_gemini(api_key: str) -> bool:if not (GEMINI_AVAILABLE and api_key):return Falsetry:genai.configure(api_key=api_key)return Trueexcept Exception:return False
+
+def gemini_analyze_company(ticker: str, company_name: str, buffett_detail: dict, dca_result: dict) -> str:if not GEMINI_AVAILABLE:return “❌ ยังไม่ได้ติดตั้ง google-generativeai (pip install google-generativeai)”try:details = buffett_detail.get(‘details’, [])passed = sum(1 for d in details if d[‘result’] == 1)failed = sum(1 for d in details if d[‘result’] == 0)na = sum(1 for d in details if d[‘result’] == -1)failed_list = [d[‘title’] for d in details if d[‘result’] == 0]failed_text = “, “.join(failed_list) if failed_list else “ผ่านทุกข้อ หรือไม่มีข้อไม่ผ่านที่ระบุ”score_pct = buffett_detail.get(‘score_pct’, 0)
  # ----------------- UI & Main -----------------
  st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
  menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
