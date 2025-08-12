@@ -6,15 +6,7 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
  
- # ----------------- Helper Functions -----------------#
- markets = {
-     "US": us_stocks,
-     "SET100": set100,
-     "Europe": european_stocks,
-     "Asia": asian_stocks,
-     "Australia": australian_stocks,
-     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
- }
+
  
 +# ----------------- Gemini AI Integration (Added) -----------------
 +try:
