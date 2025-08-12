@@ -1136,7 +1136,7 @@ def ma_crossover_strategy(data, short_period=10, long_period=50, stop_loss_pct=5
     }
 
 def buy_and_hold_strategy(data, transaction_cost_rate=0.1, initial_capital=10000,
-                         stop_loss_pct=5, take_profit_pct=10):
+def buy_and_hold_strategy(data, stop_loss_pct=5, take_profit_pct=10, transaction_cost_rate=0.1, initial_capital=10000):
     """Buy and Hold Strategy"""
     if len(data) < 2:
         return {
