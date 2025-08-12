@@ -263,7 +263,9 @@ def plot_bollinger_bands_chart(result: Dict, ticker: str) -> plt.Figure:
     # Plot equity curve
     if "equity_curve" in result:
         equity_dates = prices.index[result["parameters"]["period"]:]
-        ax2.plot(equity_dates, result["equity_curve"], color='purple', linewidth=2)
+        equity_curve = result["equity_curve"]
+        min_len = min(len(equity_dates), len(equity_curve))
+        ax2.plot(equity_dates[:min_len], equity_curve[:min_len], color='purple', linewidth=2)
         ax2.set_title('Portfolio Value', fontsize=12)
         ax2.set_ylabel('Value ($)', fontsize=10)
         ax2.set_xlabel('Date', fontsize=10)
