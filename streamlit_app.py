@@ -1262,7 +1262,8 @@ def create_excel_export(all_results, strategy_key):
             for ticker, result in all_results.items():
                 # Clean sheet name - remove invalid characters and limit length
                 sheet_name = f"{ticker}_{strategy_key}"
-                sheet_name = sheet_name.replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_')
+                # Replace invalid Excel sheet name characters with underscore
+                sheet_name = re.sub(r'[:\\/?*\[\]]', '_', sheet_name)
                 sheet_name = sheet_name[:31]  # Excel sheet name limit
                 sheet_name = sanitize_sheet_name(f"{ticker}_{strategy_key}")
                 
