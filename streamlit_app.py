@@ -955,7 +955,7 @@ def rsi_strategy(data, rsi_period=14, oversold=30, overbought=70, stop_loss_pct=
                 capital = net_proceeds
                 total_fees += fee
                 
-                reason = 'RSI Overbought' if current_rsi > overbought else ('Stop Loss' if profit_pct <= -stop_loss_pct else 'Take Profit')
+                # reason = 'RSI Overbought' if current_rsi > overbought else ('Stop Loss' if profit_pct <= -stop_loss_pct else 'Take Profit')
             if profit_pct <= -stop_loss_pct:
                 # Sell signal - Stop Loss
                 # reason will be set below based on the trigger
