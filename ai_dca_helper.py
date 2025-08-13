@@ -34,7 +34,7 @@ class GeminiProvider(AIProvider):
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=api_key)
-                self._client = genai.GenerativeModel('gemini-pro')
+                self._client = genai.GenerativeModel('gemini-2.5-flash')
             except ImportError:
                 print("Warning: google-generativeai package not installed")
             except Exception as e:
