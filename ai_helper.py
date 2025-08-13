@@ -1,5 +1,5 @@
 import os
-import google.genai as genai
+import google.generativeai as genai
 from typing import Dict, Any, Optional, List
 import streamlit as st
 from dotenv import load_dotenv
