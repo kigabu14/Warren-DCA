@@ -237,7 +237,7 @@ class DatabaseFeatures:
             
             with col2:
                 st.metric("ราคาเปิด", f"${stock_data.get('open_price', 'N/A'):.2f}" if stock_data.get('open_price') else "N/A")
-                st.metric("EPS", f"${stock_data.get('eps', 'N/A'):.2f}" if stock_data.get('eps') else "N/A")
+                st.metric("EPS", f"${stock_data.get('eps'):.2f}" if stock_data.get('eps') is not None else "N/A")
             
             with col3:
                 st.metric("ราคาปิด", f"${stock_data.get('close_price', 'N/A'):.2f}" if stock_data.get('close_price') else "N/A")
