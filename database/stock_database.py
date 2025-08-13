@@ -35,7 +35,7 @@ class StockDatabase:
                     sector TEXT,
                     industry TEXT,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(ticker)
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
