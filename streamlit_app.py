@@ -5,6 +5,7 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from database_features import DatabaseFeatures
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -415,9 +416,14 @@ markets = {
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "จัดการข้อมูลหุ้น", "คู่มือการใช้งาน"])
 
-if menu == "คู่มือการใช้งาน":
+if menu == "จัดการข้อมูลหุ้น":
+    # Database features section
+    db_features = DatabaseFeatures()
+    db_features.render_data_storage_section()
+
+elif menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
 **Warren-DCA คืออะไร?**  
