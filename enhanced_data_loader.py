@@ -18,7 +18,7 @@ from mock_data_generator import MockDataGenerator
 class EnhancedDCADataLoader(DCADataLoader):
     """Enhanced data loader with database integration for stock data storage."""
     
-    def __init__(self, cache_dir: str = "data/cache", db_path: str = "data/stocks.db", use_mock_data: bool = False):
+    def __init__(self, cache_dir: str = DEFAULT_CACHE_DIR, db_path: str = DEFAULT_DB_PATH, use_mock_data: bool = False):
         """Initialize enhanced data loader with database support."""
         super().__init__(cache_dir)
         self.db = StockDatabase(db_path)
