@@ -1,6 +1,7 @@
 """
 Test data generator for demonstration purposes.
-Generates mock stock data when external APIs are not accessible.
+Mock financial data generator for demonstration and testing purposes.
+Generates realistic mock stock data and financial statements when external APIs are not accessible.
 """
 
 import pandas as pd
