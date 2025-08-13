@@ -245,7 +245,20 @@ class DatabaseFeatures:
             
             with col4:
                 st.metric("ปันผล", f"{stock_data.get('dividend_yield', 'N/A'):.2%}" if stock_data.get('dividend_yield') else "N/A")
-                st.metric("Market Cap", f"${stock_data.get('market_cap', 'N/A'):,.0f}" if stock_data.get('market_cap') else "N/A")
+                st.metric("ราคาปัจจุบัน", f"${stock_data.get('current_price'):.2f}" if stock_data.get('current_price') is not None else "N/A")
+                st.metric("P/E Ratio", f"{stock_data.get('pe_ratio'):.2f}" if stock_data.get('pe_ratio') is not None else "N/A")
+            
+            with col2:
+                st.metric("ราคาเปิด", f"${stock_data.get('open_price'):.2f}" if stock_data.get('open_price') is not None else "N/A")
+                st.metric("EPS", f"${stock_data.get('eps'):.2f}" if stock_data.get('eps') is not None else "N/A")
+            
+            with col3:
+                st.metric("ราคาปิด", f"${stock_data.get('close_price'):.2f}" if stock_data.get('close_price') is not None else "N/A")
+                st.metric("ROE", f"{stock_data.get('roe'):.2%}" if stock_data.get('roe') is not None else "N/A")
+            
+            with col4:
+                st.metric("ปันผล", f"{stock_data.get('dividend_yield'):.2%}" if stock_data.get('dividend_yield') is not None else "N/A")
+                st.metric("Market Cap", f"${stock_data.get('market_cap'):,.0f}" if stock_data.get('market_cap') is not None else "N/A")
         
         # Historical price chart
         if stored_data['historical_data'] is not None and not stored_data['historical_data'].empty:
