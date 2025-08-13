@@ -18,7 +18,8 @@ class DatabaseFeatures:
     
     def __init__(self):
         """Initialize database features."""
-        self.enhanced_loader = EnhancedDCADataLoader()
+        # Use mock data mode in sandboxed environment
+        self.enhanced_loader = EnhancedDCADataLoader(use_mock_data=True)
     
     def render_data_storage_section(self):
         """Render the data storage and historical analysis section."""
@@ -291,7 +292,7 @@ class DatabaseFeatures:
         """Perform offline analysis using stored data."""
         stored_data = self.enhanced_loader.get_stored_stock_data(ticker)
         
-        if not stored_data or not stored_data['historical_data'] or stored_data['historical_data'].empty:
+        if not stored_data or stored_data['historical_data'] is None or stored_data['historical_data'].empty:
             st.error("❌ ไม่มีข้อมูลประวัติสำหรับการวิเคราะห์")
             return
         
