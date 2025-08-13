@@ -294,7 +294,15 @@ class DatabaseFeatures:
                     'วันที่': statement['period_ending'],
                     'รายได้รวม': f"${statement.get('total_revenue', 'N/A'):,.0f}" if statement.get('total_revenue') else "N/A",
                     'กำไรสุทธิ': f"${statement.get('net_income', 'N/A'):,.0f}" if statement.get('net_income') else "N/A",
-                    'สินทรัพย์รวม': f"${statement.get('total_assets', 'N/A'):,.0f}" if statement.get('total_assets') else "N/A"
+                total_revenue = statement.get('total_revenue')
+                net_income = statement.get('net_income')
+                total_assets = statement.get('total_assets')
+                financial_data.append({
+                    'ประเภท': statement['statement_type'],
+                    'วันที่': statement['period_ending'],
+                    'รายได้รวม': f"${total_revenue:,.0f}" if total_revenue is not None else "N/A",
+                    'กำไรสุทธิ': f"${net_income:,.0f}" if net_income is not None else "N/A",
+                    'สินทรัพย์รวม': f"${total_assets:,.0f}" if total_assets is not None else "N/A"
                 })
             
             if financial_data:
