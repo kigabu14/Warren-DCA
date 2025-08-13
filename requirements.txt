@@ -4,5 +4,5 @@ pandas
 openpyxl
 xlsxwriter
 matplotlib
-google-generativeai
+google-genai
 python-dotenv
