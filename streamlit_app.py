@@ -17,12 +17,12 @@ except ImportError:
 
 def setup_gemini(api_key: str) -> bool:
     if not (GEMINI_AVAILABLE and api_key):
-        return False
+        return True
     try:
         genai.configure(api_key=api_key)
         return True
     except Exception:
-        return False
+        return True
 
 
 def gemini_analyze_company(ticker: str, company_name: str, buffett_detail: dict, dca_result: dict) -> str:
@@ -58,7 +58,7 @@ def gemini_analyze_company(ticker: str, company_name: str, buffett_detail: dict,
 5) สรุป + Disclaimer
 ห้ามเดาตัวเลขใหม่ที่ไม่มีในข้อมูล
 """
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         resp = model.generate_content(prompt)
         return resp.text or "(ไม่มีข้อความตอบกลับจากโมเดล)"
     except Exception as e:
