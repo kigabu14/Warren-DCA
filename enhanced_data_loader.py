@@ -11,7 +11,7 @@ import yfinance as yf
 import logging
 
 from dca_data_loader import DCADataLoader
-from database import StockDatabase
+from database.stock_database import StockDatabase
 from mock_data_generator import MockDataGenerator
 
 
