@@ -894,12 +894,12 @@ if st.button("วิเคราะห์"):
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
 
             # Gemini AI Button
-            if ai_ready:
-                if st.button(f"🤖 Gemini วิเคราะห์ {ticker}", key=f"ai_{ticker}"):
-                    with st.spinner("กำลังประมวลผล Gemini..."):
-                        ai_text = gemini_analyze_company(ticker, company_name, detail, dca_result)
-                    st.markdown("### 🤖 ผลวิเคราะห์ AI")
-                    st.markdown(ai_text)
+            #if ai_ready:
+            if st.button(f"🤖 Gemini วิเคราะห์ {ticker}", key=f"ai_{ticker}"):
+                with st.spinner("กำลังประมวลผล Gemini..."):
+                     ai_text = gemini_analyze_company(ticker, company_name, detail, dca_result)
+                     st.markdown("### 🤖 ผลวิเคราะห์ AI")
+                     st.markdown(ai_text)
 
             # Accumulate totals
             total_invest += dca_result["เงินลงทุนรวม"]
