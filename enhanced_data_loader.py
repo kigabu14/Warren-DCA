@@ -33,7 +33,7 @@ class EnhancedDCADataLoader(DCADataLoader):
                 data = self.fetch_ticker_data(ticker, period)
             else:
                 raise Exception("Using mock data mode")
-        except Exception as e:
+        except (requests.exceptions.RequestException, ValueError, KeyError) as e:
             logging.warning(f"Failed to fetch real data for {ticker}: {e}. Using mock data.")
             # Use mock data as fallback
             data = self._generate_mock_data(ticker, period)
