@@ -30,7 +30,7 @@ class AIHelper:
         if api_key:
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-pro')
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
                 self.is_configured = True
             except Exception as e:
                 st.warning(f"Failed to configure Gemini AI: {e}")
