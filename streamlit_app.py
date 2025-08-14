@@ -520,21 +520,21 @@ def render_ai_interface():
                                 for tk in tickers:
                                     hist_df, div_series = load_price_and_div(tk, period)
                                     if hist_df is None or hist_df.empty:
-                                continue
+                                       continue
 
     # ให้แน่ใจว่า index เป็น DatetimeIndex
-    if not isinstance(hist_df.index, pd.DatetimeIndex):
-        hist_df = hist_df.copy()
-        hist_df.index = pd.to_datetime(hist_df.index, errors='coerce')
-        hist_df = hist_df.dropna(axis=0, subset=['Close'])  # กัน index เพี้ยน
+                                    if not isinstance(hist_df.index, pd.DatetimeIndex):
+                                       hist_df = hist_df.copy()
+                                       hist_df.index = pd.to_datetime(hist_df.index, errors='coerce')
+                                       hist_df = hist_df.dropna(axis=0, subset=['Close'])  # กัน index เพี้ยน
 
     # ตรวจว่ามีคอลัมน์ Close
-    if "Close" not in hist_df.columns:
-        st.warning(f"{tk}: ไม่มีคอลัมน์ Close ข้าม")
-        continue
+                                    if "Close" not in hist_df.columns:
+                                       st.warning(f"{tk}: ไม่มีคอลัมน์ Close ข้าม")
+                                       continue
 
-    prices_map[tk] = hist_df[['Close']].copy()  # ลดเหลือที่จำเป็น
-    dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
+                                       prices_map[tk] = hist_df[['Close']].copy()  # ลดเหลือที่จำเป็น
+                                       dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
                                 if not prices_map:
                                     st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
                                 else:
