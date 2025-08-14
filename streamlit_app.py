@@ -533,8 +533,8 @@ def render_ai_interface():
                                         st.warning(f"{tk}: ไม่มีคอลัมน์ Close ข้าม")
                                         continue
 
-                                        prices_map[tk] = hist_df[['Close']].copy()  # ลดเหลือที่จำเป็น
-                                        dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
+                                    prices_map[tk] = hist_df[['Close']].copy()  # ลดเหลือที่จำเป็น
+                                    dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
                                 if not prices_map:
                                     st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
                                 else:
