@@ -1,5 +1,12 @@
 .streamlit/secrets.toml
 
+# AI database files (user data)
+*.db
+ai_queries.db
+
+# Environment variables
+.env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
