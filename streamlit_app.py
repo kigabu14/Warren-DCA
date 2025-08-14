@@ -459,6 +459,123 @@ def initialize_ai_session():
 def render_ai_interface():
     """Render the AI chat interface in the sidebar."""
     with st.sidebar:
+                # ---------------- Portfolio Optimizer (AI) ----------------
+        st.markdown("---")
+        st.subheader("📊 Portfolio Optimizer (AI)")
+
+        # เตรียม state
+        if 'last_optimize_result' not in st.session_state:
+            st.session_state.last_optimize_result = None
+
+        if not st.session_state.get('analysis_done', False):
+            st.info("โปรดกดปุ่ม 'วิเคราะห์' ในหน้าหลักก่อน แล้วค่อย Optimize.")
+        else:
+            total_budget_sidebar = st.number_input(
+                "งบลงทุนรวม (Optimize)",
+                min_value=1000.0, max_value=5_000_000.0,
+                value=st.session_state.get("monthly_invest", 20000.0),
+                step=1000.0,
+                key="opt_total_budget"
+            )
+
+            objective_sidebar = st.selectbox(
+                "วัตถุประสงค์",
+                ["balanced", "maximize_return", "minimize_risk", "income"],
+                index=0,
+                key="opt_objective"
+            )
+
+            use_dca_budget = st.toggle("ใช้ค่า monthly_invest เป็นงบ", value=False)
+            if use_dca_budget:
+                total_budget_sidebar = float(st.session_state.get("monthly_invest", total_budget_sidebar))
+
+            run_opt_button = st.button("🚀 Optimize Portfolio", type="primary", use_container_width=True)
+
+            # แสดงผลล่าสุดแบบย่อ
+            if st.session_state.get('last_optimize_result'):
+                if st.checkbox("แสดงสรุป Optimize ล่าสุด"):
+                    opt = st.session_state.last_optimize_result
+                    st.write(f"Objective: {opt.get('objective','-')}")
+                    st.write(f"Exp Return: {opt['expected_return']*100:.2f}% | Exp Yield: {opt['expected_yield']*100:.2f}%")
+
+            if run_opt_button:
+                import time
+                now = time.time()
+                last_run = st.session_state.get("last_opt_run_time", 0)
+                if now - last_run < 3:
+                    st.warning("กรุณารอสักครู่ก่อนรันใหม่ (กันกดรัว)")
+                else:
+                    st.session_state.last_opt_run_time = now
+                    from external_optimizer import PortfolioOptimizer
+                    from dca_data_loader import DCADataLoader
+                    import pandas as pd
+
+                    @st.cache_data(show_spinner=False, ttl=3600)
+                    def load_price_and_div(ticker, period):
+                        loader = DCADataLoader()
+                        data = loader.fetch(ticker, period=period)
+                        hist_df = data.get('history') or data.get('historical_prices')
+                        if hist_df is None:
+                            return None, None
+                        if "Close" not in hist_df.columns and "Adj Close" in hist_df.columns:
+                            hist_df = hist_df.copy()
+                            hist_df["Close"] = hist_df["Adj Close"]
+                        div_data = data.get("dividends")
+                        if isinstance(div_data, pd.DataFrame) and {"Date","Dividend"}.issubset(div_data.columns):
+                            div_series = div_data.set_index("Date")["Dividend"]
+                        elif isinstance(div_data, pd.Series):
+                            div_series = div_data
+                        else:
+                            div_series = pd.Series(dtype=float)
+                        return hist_df, div_series
+
+                    with st.spinner("กำลัง Optimize พอร์ต..."):
+                        try:
+                            tickers = st.session_state.get('selected_tickers', [])
+                            period = st.session_state.get('period', '1y')
+                            if not tickers:
+                                st.warning("ยังไม่ได้เลือกหุ้น")
+                            else:
+                                prices_map = {}
+                                dividends_map = {}
+                                for tk in tickers:
+                                    hist_df, div_series = load_price_and_div(tk, period)
+                                    if hist_df is None or hist_df.empty:
+                                        continue
+                                    if not isinstance(hist_df.index, pd.DatetimeIndex):
+                                        hist_df = hist_df.copy()
+                                        hist_df.index = pd.to_datetime(hist_df.index)
+                                    prices_map[tk] = hist_df
+                                    dividends_map[tk] = div_series
+
+                                if not prices_map:
+                                    st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
+                                else:
+                                    if len(prices_map) < len(tickers):
+                                        st.info(f"ใช้ข้อมูลได้ {len(prices_map)}/{len(tickers)} ตัว")
+
+                                    optimizer = PortfolioOptimizer(prices_map, dividends_map)
+                                    opt_result = optimizer.optimize(
+                                        total_budget=total_budget_sidebar,
+                                        objective=objective_sidebar
+                                    )
+                                    st.session_state.last_optimize_result = opt_result
+
+                                    context_data = get_current_context()
+                                    context_data.update({
+                                        'total_budget': total_budget_sidebar,
+                                        'objective': objective_sidebar,
+                                        'tickers_used': list(prices_map.keys())
+                                    })
+
+                                    st.session_state.ai_database.store_optimization(
+                                        st.session_state.session_id,
+                                        context_data,
+                                        opt_result
+                                    )
+                                    st.success("✅ Optimize เสร็จสิ้น! ดูรายละเอียดในหน้าหลัก")
+                        except Exception as e:
+                            st.error(f"เกิดข้อผิดพลาด: {e}")
         st.header("🤖 AI Financial Assistant")
         
         # Check if AI is configured
@@ -948,74 +1065,7 @@ if st.button("วิเคราะห์"):
 if 'last_optimize_result' not in st.session_state:
     st.session_state.last_optimize_result = None
 
-# ใน render_ai_interface() หลังส่วน Ask/Chat ให้เพิ่ม Block ปุ่ม Optimize
-with st.sidebar:
-    st.markdown("---")
-    st.subheader("📊 Portfolio Optimizer (AI)")
-    if not st.session_state.get('analysis_done', False):
-        st.info("โปรดกดปุ่ม 'วิเคราะห์' ด้านล่างก่อน แล้วค่อย Optimize.")
-    else:
-        total_budget_sidebar = st.number_input(
-            "งบลงทุนรวม (Optimize)",
-            min_value=1000.0, max_value=5_000_000.0,
-            value=20000.0, step=1000.0, key="opt_total_budget"
-        )
-        objective_sidebar = st.selectbox(
-            "วัตถุประสงค์",
-            ["balanced", "maximize_return", "minimize_risk", "income"],
-            index=0, key="opt_objective"
-        )
-        run_opt_button = st.button("🚀 Optimize Portfolio", type="primary", use_container_width=True)
 
-        if run_opt_button:
-            with st.spinner("กำลัง Optimize พอร์ต..."):
-                try:
-                    tickers = st.session_state.get('selected_tickers', [])
-                    period = st.session_state.get('period', '1y')
-                    if not tickers:
-                        st.warning("ยังไม่ได้เลือกหุ้น")
-                    else:
-                        loader = DCADataLoader()
-                        prices_map = {}
-                        dividends_map = {}
-                        for tk in tickers:
-                            data = loader.fetch(tk, period=period)
-                            hist_df = data.get('history') or data.get('historical_prices')
-                            if hist_df is None or hist_df.empty:
-                                continue
-                            if "Close" not in hist_df.columns and "Adj Close" in hist_df.columns:
-                                hist_df["Close"] = hist_df["Adj Close"]
-                            prices_map[tk] = hist_df.copy()
-                            div_data = data.get("dividends")
-                            if isinstance(div_data, pd.DataFrame) and {"Date","Dividend"}.issubset(div_data.columns):
-                                div_series = div_data.set_index("Date")["Dividend"]
-                            elif isinstance(div_data, pd.Series):
-                                div_series = div_data
-                            else:
-                                div_series = pd.Series(dtype=float)
-                            dividends_map[tk] = div_series
-
-                        if not prices_map:
-                            st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
-                        else:
-                            optimizer = PortfolioOptimizer(prices_map, dividends_map)
-                            opt_result = optimizer.optimize(
-                                total_budget=total_budget_sidebar,
-                                objective=objective_sidebar
-                            )
-                            st.session_state.last_optimize_result = opt_result
-                            # บันทึกลง DB
-                            context_data = get_current_context()
-                            context_data['total_budget'] = total_budget_sidebar
-                            st.session_state.ai_database.store_optimization(
-                                st.session_state.session_id,
-                                context_data,
-                                opt_result
-                            )
-                            st.success("✅ Optimize เสร็จสิ้น! เลื่อนมาดูผลในหน้าหลัก")
-
-                except Exception as e:
-                    st.error(f"เกิดข้อผิดพลาด: {e}")
 st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
 
 
