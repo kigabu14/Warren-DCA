@@ -787,7 +787,6 @@ if menu == "ข่าว & Sentiment":
             try:
                 # Create the ticker object once and reuse it
                 stock = yf.Ticker(selected_ticker)
-                news = stock.news
                 # Use cached function to get news and reduce API calls
                 news = get_stock_news(selected_ticker)
                 
