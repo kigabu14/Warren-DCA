@@ -478,7 +478,7 @@ def render_ai_interface():
         st.caption(f"💬 Total queries: {stats['total_queries']} | Today: {stats['queries_today']}")
         
         # Sample questions
-        with st.expander("📝 Sample Questions"):
+        with st.expander("📝 คำถาม ถาม AI"):
             sample_questions = st.session_state.ai_helper.get_sample_questions()
             for i, question in enumerate(sample_questions[:5]):
                 if st.button(f"📌 {question[:50]}...", key=f"sample_{i}", help=question):
@@ -487,15 +487,15 @@ def render_ai_interface():
         
         # AI Query Input
         ai_query = st.text_area(
-            "Ask the AI about your stocks:",
+            "AI จะตอบ ให้ ถามมา:",
             height=100,
-            placeholder="e.g., 'Analyze my selected stocks based on Warren Buffett principles'",
+            placeholder="e.g., 'เราจะมาวิเคราะห์ กันสวมิญญาณความคิดของ ปู่ Warren Buffett ว่าถ้าเป็นปู่จะทำไง'",
             key="ai_query_input"
         )
         
         col1, col2 = st.columns(2)
         with col1:
-            ask_button = st.button("🚀 Ask AI", type="primary", use_container_width=True)
+            ask_button = st.button("🚀ส่งคำถาม ", type="primary", use_container_width=True)
         with col2:
             clear_button = st.button("🗑️ Clear Chat", use_container_width=True)
         
@@ -505,7 +505,7 @@ def render_ai_interface():
         
         # Process AI query
         if ask_button and ai_query.strip():
-            with st.spinner("🤔 AI is thinking..."):
+            with st.spinner("🤔 ขอคิดก่อนะ ..."):
                 # Get current context
                 context_data = get_current_context()
                 
@@ -537,15 +537,15 @@ def render_ai_interface():
         
         # Display conversation history
         if st.session_state.conversation_history:
-            st.subheader("💬 Conversation")
+            st.subheader("💬 ความคิดเห็น ปู่")
             
             # Reverse to show latest first
             for i, msg in enumerate(reversed(st.session_state.conversation_history[-5:])):
                 with st.container():
-                    st.markdown(f"**👤 You ({msg['timestamp']}):**")
+                    st.markdown(f"**👤 คุณถาม ({msg['timestamp']}):**")
                     st.markdown(msg['user'])
                     
-                    st.markdown("**🤖 AI Assistant:**")
+                    st.markdown("**🤖 ปู่ AI ตอบ :**")
                     st.markdown(msg['assistant'])
                     
                     st.divider()
@@ -569,8 +569,8 @@ def get_current_context():
     # Add DCA settings if available
     try:
         context['dca_settings'] = {
-            'monthly_invest': st.session_state.get('monthly_invest', 1000),
-            'period': st.session_state.get('period', '5y')
+            'monthly_invest': st.session_state.get('monthly_invest', 10000),
+            'period': st.session_state.get('period', '1y')
         }
     except:
         pass
