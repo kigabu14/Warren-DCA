@@ -687,34 +687,6 @@ def get_current_context():
     # วิเคราะห์แล้วหรือยัง
     context['analysis_done'] = st.session_state.get('analysis_done', False)
     return context
-"""def get_current_context():
-    """Get current application context for AI queries."""
-    context = {}
-    
-    # Add selected market if available
-    try:
-        context['market'] = st.session_state.get('selected_market', 'Unknown')
-    except:
-        pass
-    
-    # Add selected tickers if available
-    try:
-        context['selected_stocks'] = st.session_state.get('selected_tickers', [])
-    except:
-        pass
-    
-    # Add DCA settings if available
-    try:
-        context['dca_settings'] = {
-            'monthly_invest': st.session_state.get('monthly_invest', 10000),
-            'period': st.session_state.get('period', '1y')
-        }
-    except:
-        pass
-    
-    context['analysis_results'] = True  # Indicates analysis results are available
-    
-    return context """
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
