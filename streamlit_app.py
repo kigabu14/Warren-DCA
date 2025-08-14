@@ -517,11 +517,9 @@ def render_ai_interface():
                             else:
                                 prices_map = {}
                                 dividends_map = {}
-                         
-
-                            for tk in tickers:
-                                hist_df, div_series = load_price_and_div(tk, period)
-                                if hist_df is None or hist_df.empty:
+                                for tk in tickers:
+                                    hist_df, div_series = load_price_and_div(tk, period)
+                                    if hist_df is None or hist_df.empty:
                                 continue
 
     # ให้แน่ใจว่า index เป็น DatetimeIndex
@@ -537,7 +535,6 @@ def render_ai_interface():
 
     prices_map[tk] = hist_df[['Close']].copy()  # ลดเหลือที่จำเป็น
     dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
-
                                 if not prices_map:
                                     st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
                                 else:
