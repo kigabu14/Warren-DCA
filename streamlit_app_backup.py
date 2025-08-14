@@ -502,7 +502,7 @@ def get_badge(score_pct):
     else:
         return "🟥 ควรระวัง (Poor)"
 
-# ----------------- STOCK LISTS BY MARKET -----------------
+# ----------------- SET100/US STOCKS -----------------
 set100 = [
     "ADVANC.BK", "AOT.BK", "AP.BK", "AWC.BK", "BAM.BK", "BANPU.BK", "BBL.BK", "BCP.BK", "BDMS.BK", "BEC.BK",
     "BEM.BK", "BGRIM.BK", "BH.BK", "BJC.BK", "BLA.BK", "BPP.BK", "BTS.BK", "CBG.BK", "CENTEL.BK", "CHG.BK",
@@ -515,42 +515,11 @@ set100 = [
     "THG.BK", "TISCO.BK", "TKN.BK", "TMB.BK", "TOA.BK", "TOP.BK", "TRUE.BK", "TTB.BK", "TU.BK", "TVO.BK",
     "VGI.BK", "WHA.BK"
 ]
-
 us_stocks = [
     "AAPL", "TSLA", "NVDA", "GOOG", "MSFT", "SBUX", "AMD", "BABA", "T", "WMT",
     "SONY", "KO", "MCD", "MCO", "SNAP", "DIS", "NFLX", "GPRO", "CCL", "PLTR", "CBOE", "HD", "F", "COIN"
 ]
-
-# European stocks
-european_stocks = [
-    "ASML.AS", "SAP.DE", "NESN.SW", "INGA.AS", "MC.PA", "OR.PA", "SAN.PA", "RDSA.AS", "NOVN.SW", "ROG.SW",
-    "LONN.SW", "UNA.AS", "ADYEN.AS", "DSM.AS", "PHIA.AS", "DBK.DE", "EOAN.DE", "VOW3.DE", "SIE.DE", "ALV.DE",
-    "AZN.L", "ULVR.L", "SHEL.L", "BP.L", "HSBA.L", "GSK.L", "DGE.L", "VODL.L", "BARC.L", "LLOY.L"
-]
-
-# Asian stocks (excluding Thailand)
-asian_stocks = [
-    "7203.T", "9984.T", "6098.T", "6758.T", "8035.T", "9434.T", "4063.T", "7974.T", "6501.T", "9432.T",  # Japan
-    "005930.KS", "000660.KS", "035420.KS", "207940.KS", "035720.KS", "068270.KS", "012330.KS", "051910.KS",  # South Korea
-    "0700.HK", "9988.HK", "0941.HK", "1299.HK", "0175.HK", "1398.HK", "3690.HK", "0388.HK", "2318.HK", "1810.HK",  # Hong Kong
-    "000001.SS", "000002.SS", "000858.SS", "600036.SS", "600519.SS", "000725.SS", "600276.SS", "002415.SS"  # China
-]
-
-# Australian stocks
-australian_stocks = [
-    "CBA.AX", "WBC.AX", "ANZ.AX", "NAB.AX", "CSL.AX", "BHP.AX", "WOW.AX", "TLS.AX", "WES.AX", "MQG.AX",
-    "COL.AX", "TCL.AX", "RIO.AX", "WDS.AX", "REA.AX", "QBE.AX", "IAG.AX", "SUN.AX", "QAN.AX", "ALL.AX"
-]
-
-# Market definitions
-markets = {
-    "US": us_stocks,
-    "SET100": set100,
-    "Europe": european_stocks,
-    "Asia": asian_stocks,
-    "Australia": australian_stocks,
-    "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
-}
+all_tickers = us_stocks + set100
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
@@ -752,10 +721,8 @@ elif menu == "คู่มือการใช้งาน":
 - ข้อมูลหุ้น US มักครบถ้วนกว่าหุ้นไทย
 - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
-- รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
 """)
     st.stop()
-
 
 elif menu == "วิเคราะห์หุ้น":
     st.header("📊 Warren-DCA Stock Analysis")
@@ -770,75 +737,25 @@ elif menu == "วิเคราะห์หุ้น":
     show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
     if st.button("วิเคราะห์"):
-        if not tickers:
-            st.warning("กรุณาเลือกหุ้นอย่างน้อย 1 ตัว")
-        else:
-            # Run the analysis here in a simplified way
-            st.success("กำลังวิเคราะห์หุ้น...")
-            st.info("ฟีเจอร์วิเคราะห์หุ้นยังคงใช้งานได้ตามเดิม แต่จะถูกย้ายมาแสดงผลในส่วนนี้ในเวอร์ชันถัดไป")
-    
-    st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
-=======
-# Market selection
-selected_market = st.selectbox(
-    "เลือกตลาดหุ้น",
-    options=list(markets.keys()),
-    index=0,  # Default to US
-    help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์"
-)
+        export_list = []
+        results_table = []
+        total_invest = 0
+        total_profit = 0
+        total_div = 0
 
-# Get available tickers based on selected market
-available_tickers = markets[selected_market]
+        for ticker in tickers:
+            stock = yf.Ticker(ticker)
+            fin = stock.financials
+            bs = stock.balance_sheet
+            cf = stock.cashflow
+            div = stock.dividends
+            hist = stock.history(period=period)
+            info = stock.info
 
-# Default tickers based on market
-default_tickers = []
-if selected_market == "US":
-    default_tickers = ["AAPL"]
-elif selected_market == "SET100":
-    default_tickers = ["PTT.BK"]
-elif selected_market == "Global":
-    default_tickers = ["AAPL", "PTT.BK"]
-else:
-    # For other markets, select first ticker as default
-    default_tickers = [available_tickers[0]] if available_tickers else []
+            manual_yield = np.nan
+            total_div1y = np.nan
 
-tickers = st.multiselect(
-    f"เลือกหุ้น ({selected_market})",
-    available_tickers,
-    default=default_tickers,
-    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์"
-)
-period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1mo","3mo","6mo","1y", "5y", "max"], index=1)
-monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
-show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
-
-if st.button("วิเคราะห์"):
-    export_list = []
-    results_table = []
-    total_invest = 0
-    total_profit = 0
-    total_div = 0
-
-    for ticker in tickers:
-        stock = yf.Ticker(ticker)
-        fin = stock.financials
-        bs = stock.balance_sheet
-        cf = stock.cashflow
-        div = stock.dividends
-        hist = stock.history(period=period)
-        info = stock.info
-
-        manual_yield = np.nan
-        total_div1y = np.nan
-
-        # Get company name
-        company_name = info.get('longName', ticker)
-        company_symbol = ticker
-
-        with st.expander(f"ดูรายละเอียดหุ้น {ticker} - {company_name}", expanded=False):
-            st.subheader(f"ข้อมูลบริษัท: {company_name}")
-            st.write(f"**สัญลักษณ์:** {company_symbol}")
-            
+        with st.expander(f"ดูรายละเอียดหุ้น {ticker}", expanded=False):
             st.subheader("ข้อมูลราคาหุ้นและปันผลล่าสุด")
 
             # 1. Dividend Yield (% ต่อปี)
@@ -922,7 +839,6 @@ if st.button("วิเคราะห์"):
 
             results_table.append({
                 "หุ้น": ticker,
-                "ชื่อบริษัท": company_name,
                 "เงินลงทุน": dca_result["เงินลงทุนรวม"],
                 "กำไร": dca_result["กำไร/ขาดทุน"],
                 "เงินปันผล": dca_result["เงินปันผลรวม"],
@@ -940,7 +856,6 @@ if st.button("วิเคราะห์"):
 
             export_list.append({
                 "หุ้น": ticker,
-                "ชื่อบริษัท": company_name,
                 "เงินลงทุนรวม": dca_result["เงินลงทุนรวม"],
                 "จำนวนหุ้นสะสม": dca_result["จำนวนหุ้นสะสม"],
                 "มูลค่าปัจจุบัน": dca_result["มูลค่าปัจจุบัน"],
@@ -993,5 +908,4 @@ if st.button("วิเคราะห์"):
     ax.set_title("INVEST/Profit/DivyYield")
     st.pyplot(fig)
 
-st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
-
+    st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")

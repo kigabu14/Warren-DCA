@@ -4,4 +4,6 @@ pandas
 openpyxl
 xlsxwriter
 matplotlib
+
+
 google-generativeai
