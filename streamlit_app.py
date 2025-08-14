@@ -5,6 +5,7 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from database import StockDatabase
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -415,7 +416,15 @@ markets = {
 
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+
+# Initialize database
+@st.cache_resource
+def init_database():
+    return StockDatabase()
+
+db = init_database()
+
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "ประวัติการวิเคราะห์", "คู่มือการใช้งาน"])
 
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
@@ -450,6 +459,128 @@ if menu == "คู่มือการใช้งาน":
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
 """)
+    st.stop()
+
+elif menu == "ประวัติการวิเคราะห์":
+    st.header("ประวัติการวิเคราะห์หุ้น")
+    
+    # Database statistics
+    stats = db.get_database_stats()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("จำนวนหุ้นที่เคยวิเคราะห์", stats['total_stocks'])
+    with col2:
+        st.metric("จำนวนการวิเคราะห์ทั้งหมด", stats['total_analyses'])
+    
+    # View options
+    view_option = st.radio(
+        "เลือกวิธีดูข้อมูล",
+        ["สรุปหุ้นทั้งหมด", "ประวัติหุ้นเฉพาะ"]
+    )
+    
+    if view_option == "สรุปหุ้นทั้งหมด":
+        st.subheader("สรุปหุ้นที่เคยวิเคราะห์ทั้งหมด")
+        all_stocks = db.get_all_analyzed_stocks()
+        
+        if all_stocks:
+            df_stocks = pd.DataFrame(all_stocks)
+            df_stocks['last_analysis'] = pd.to_datetime(df_stocks['last_analysis']).dt.strftime('%Y-%m-%d %H:%M')
+            df_stocks['avg_profit_pct'] = df_stocks['avg_profit_pct'].round(2)
+            df_stocks['avg_buffett_score'] = df_stocks['avg_buffett_score'].round(0)
+            df_stocks['total_invested'] = df_stocks['total_invested'].round(2)
+            df_stocks['total_profit'] = df_stocks['total_profit'].round(2)
+            
+            # Rename columns for display
+            df_display = df_stocks.rename(columns={
+                'ticker': 'หุ้น',
+                'company_name': 'ชื่อบริษัท',
+                'sector': 'หมวดหุ้น',
+                'analysis_count': 'จำนวนการวิเคราะห์',
+                'last_analysis': 'วิเคราะห์ล่าสุด',
+                'avg_profit_pct': 'กำไรเฉลี่ย (%)',
+                'avg_buffett_score': 'คะแนน Buffett เฉลี่ย',
+                'total_invested': 'เงินลงทุนรวม',
+                'total_profit': 'กำไรรวม'
+            })
+            
+            st.dataframe(df_display, use_container_width=True)
+            
+            # Download historical data
+            if st.button("📥 ดาวน์โหลดประวัติทั้งหมด"):
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df_display.to_excel(writer, index=False, sheet_name='Historical_Analysis')
+                st.download_button(
+                    label="📁 ดาวน์โหลดไฟล์",
+                    data=output.getvalue(),
+                    file_name='Warren_DCA_Historical_Analysis.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+        else:
+            st.info("ยังไม่มีข้อมูลการวิเคราะห์ในฐานข้อมูล กรุณาทำการวิเคราะห์หุ้นก่อน")
+    
+    else:  # ประวัติหุ้นเฉพาะ
+        st.subheader("ดูประวัติการวิเคราะห์หุ้นเฉพาะ")
+        
+        # Get list of analyzed stocks for selection
+        all_stocks = db.get_all_analyzed_stocks()
+        if all_stocks:
+            stock_options = [f"{stock['ticker']} - {stock['company_name']}" for stock in all_stocks]
+            selected_stock = st.selectbox("เลือกหุ้น", stock_options)
+            
+            if selected_stock:
+                ticker = selected_stock.split(" - ")[0]
+                
+                # Show stock history
+                history = db.get_stock_history(ticker, limit=20)
+                if history:
+                    st.write(f"**ประวัติการวิเคราะห์หุ้น {ticker}**")
+                    
+                    df_history = pd.DataFrame(history)
+                    df_history['analysis_date'] = pd.to_datetime(df_history['analysis_date']).dt.strftime('%Y-%m-%d %H:%M')
+                    df_history['profit_percentage'] = df_history['profit_percentage'].round(2)
+                    df_history['total_investment'] = df_history['total_investment'].round(2)
+                    df_history['profit_loss'] = df_history['profit_loss'].round(2)
+                    df_history['total_dividends'] = df_history['total_dividends'].round(2)
+                    
+                    # Rename columns for display
+                    df_history_display = df_history.rename(columns={
+                        'analysis_date': 'วันที่วิเคราะห์',
+                        'period': 'ช่วงเวลา',
+                        'monthly_investment': 'เงินลงทุนต่อเดือน',
+                        'total_investment': 'เงินลงทุนรวม',
+                        'profit_loss': 'กำไร/ขาดทุน',
+                        'profit_percentage': 'กำไร (%)',
+                        'total_dividends': 'เงินปันผลรวม',
+                        'buffett_score': 'คะแนน Buffett',
+                        'buffett_total_checks': 'ข้อตรวจสอบทั้งหมด',
+                        'buffett_percentage': 'คะแนน Buffett (%)',
+                        'dividend_yield': 'Dividend Yield',
+                        'dividend_yield_1y': 'Dividend Yield 1Y',
+                        'last_close': 'ราคาปิดล่าสุด'
+                    })
+                    
+                    st.dataframe(df_history_display, use_container_width=True)
+                    
+                    # Show latest analysis details
+                    latest = db.get_latest_analysis(ticker)
+                    if latest:
+                        st.subheader("รายละเอียดการวิเคราะห์ล่าสุด")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("กำไร/ขาดทุน", f"{latest['profit_loss']:.2f}")
+                            st.metric("กำไร (%)", f"{latest['profit_percentage']:.2f}%")
+                        with col2:
+                            st.metric("คะแนน Buffett", f"{latest['buffett_score']}/{latest['buffett_total_checks']}")
+                            st.metric("คะแนน Buffett (%)", f"{latest['buffett_percentage']}%")
+                        with col3:
+                            st.metric("เงินลงทุนรวม", f"{latest['total_investment']:.2f}")
+                            st.metric("เงินปันผลรวม", f"{latest['total_dividends']:.2f}")
+                else:
+                    st.warning(f"ไม่พบประวัติการวิเคราะห์สำหรับหุ้น {ticker}")
+        else:
+            st.info("ยังไม่มีข้อมูลการวิเคราะห์ในฐานข้อมูล กรุณาทำการวิเคราะห์หุ้นก่อน")
+    
     st.stop()
 
 # Market selection
@@ -587,6 +718,47 @@ if st.button("วิเคราะห์"):
             st.subheader("DCA Simulation (จำลองลงทุนรายเดือน)")
             dca_result = dca_simulation(hist, monthly_invest, div)
             st.write(pd.DataFrame(dca_result, index=['สรุปผล']).T)
+
+            # Store analysis results in database
+            try:
+                # Store stock information
+                stock_id = db.store_stock_info(
+                    ticker=ticker,
+                    company_name=company_name,
+                    sector=info.get('sector', 'Unknown'),
+                    currency=info.get('currency', 'USD')
+                )
+                
+                # Prepare analysis data for database
+                analysis_data = {
+                    'period': period,
+                    'monthly_investment': monthly_invest,
+                    'total_investment': dca_result.get("เงินลงทุนรวม", 0),
+                    'total_units': dca_result.get("จำนวนหุ้นสะสม", 0),
+                    'avg_buy_price': dca_result.get("ราคาเฉลี่ยที่ซื้อ", 0),
+                    'current_value': dca_result.get("มูลค่าปัจจุบัน", 0),
+                    'profit_loss': dca_result.get("กำไร/ขาดทุน", 0),
+                    'profit_percentage': dca_result.get("กำไร(%)", 0),
+                    'total_dividends': dca_result.get("เงินปันผลรวม", 0),
+                    'buffett_score': detail['score'],
+                    'buffett_total_checks': detail['evaluated'],
+                    'buffett_percentage': detail['score_pct'],
+                    'buffett_details': detail['details'],
+                    'dividend_yield': div_yield if div_yield is not None else None,
+                    'ex_dividend_date': ex_div_date if ex_div_date != "N/A" else None,
+                    'week_52_high': w52_high if w52_high != "N/A" else None,
+                    'week_52_low': w52_low if w52_low != "N/A" else None,
+                    'last_close': last_close if last_close != "N/A" else None,
+                    'last_open': last_open if last_open != "N/A" else None,
+                    'dividend_yield_1y': manual_yield if not np.isnan(manual_yield) else None
+                }
+                
+                # Store analysis results
+                analysis_id = db.store_analysis(stock_id, analysis_data)
+                st.success(f"✅ บันทึกผลการวิเคราะห์ {ticker} ลงฐานข้อมูลแล้ว (Analysis ID: {analysis_id})")
+                
+            except Exception as e:
+                st.warning(f"⚠️ ไม่สามารถบันทึกข้อมูลลงฐานข้อมูลได้: {str(e)}")
 
             # สะสมผลรวม
             total_invest += dca_result["เงินลงทุนรวม"]
