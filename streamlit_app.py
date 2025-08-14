@@ -25,7 +25,7 @@ def human_format(num):
     return "%.1fP" % num
 
 def df_human_format(df):
-    return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
+    return df.map(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
 def calc_dividend_yield_manual(div, hist):
     """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
