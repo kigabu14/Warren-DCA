@@ -4,6 +4,36 @@ import pandas as pd
 import io
 
 # ----------------- Helper Functions -----------------
+def strip_timezone(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove timezone information from DataFrame to prevent Excel export errors.
+    
+    Args:
+        df: DataFrame that may contain timezone-aware datetime columns or index
+        
+    Returns:
+        DataFrame with timezone information stripped
+    """
+    df = df.copy()
+    
+    # Strip timezone from DatetimeIndex if present
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    
+    # Strip timezone from datetime columns
+    for col in df.select_dtypes(include=['datetimetz']).columns:
+        df[col] = df[col].dt.tz_localize(None)
+    
+    # Handle object columns that may contain timezone-aware timestamps
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            # Check if this column contains datetime objects
+            sample = next((v for v in df[col] if isinstance(v, pd.Timestamp)), None)
+            if sample is not None and sample.tz is not None:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.tz_localize(None)
+    
+    return df
+
 def human_format(num):
     if pd.isna(num):
         return ""
@@ -368,7 +398,8 @@ if menu == "คู่มือการใช้งาน":
 tickers = st.multiselect(
     "เลือกหุ้น (US & SET100)",
     all_tickers,
-    default=["AAPL", "PTT.BK"]
+    default=["AAPL", "PTT.BK"],
+    key='tickers_multiselect_legacy'
 )
 period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
 monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
@@ -427,6 +458,13 @@ if st.button("วิเคราะห์"):
     # --- Export to Excel ---
     if len(export_list) > 0:
         df_export = pd.DataFrame(export_list)
+        # Strip timezone information to prevent Excel export errors
+        df_export = strip_timezone(df_export)
+        
+        # Defensive check: assert no timezone-aware dtypes before writing
+        tz_aware_cols = df_export.select_dtypes(include=['datetimetz']).columns
+        assert len(tz_aware_cols) == 0, f"Found timezone-aware columns before Excel export: {list(tz_aware_cols)}"
+        
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_export.to_excel(writer, index=False, sheet_name='WarrenDCA')

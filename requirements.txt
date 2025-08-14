@@ -6,3 +6,4 @@ xlsxwriter
 matplotlib
 google-generativeai
 python-dotenv
+
