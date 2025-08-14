@@ -216,3 +216,6 @@ class AIDatabase:
                 "result": json.loads(row[3]) if row[3] else None
             })
         return results
+    def _get_conn(self):
+        import sqlite3
+        return sqlite3.connect(self.db_path)
