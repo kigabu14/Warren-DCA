@@ -169,3 +169,50 @@ class AIDatabase:
         conn.close()
         
         return deleted_count
+# ใน AIDatabase class
+def store_optimization(self, session_id, context_data, optimizer_result):
+    import json, datetime
+    conn = self._get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS optimization_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            timestamp TEXT,
+            context_data TEXT,
+            result_json TEXT
+        )
+    """)
+    cur.execute("""
+        INSERT INTO optimization_results (session_id, timestamp, context_data, result_json)
+        VALUES (?, ?, ?, ?)
+    """, (
+        session_id,
+        datetime.datetime.utcnow().isoformat(),
+        json.dumps(context_data, ensure_ascii=False),
+        json.dumps(optimizer_result, ensure_ascii=False)
+    ))
+    conn.commit()
+    conn.close()
+
+def get_recent_optimizations(self, limit=5):
+    conn = self._get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT session_id, timestamp, context_data, result_json
+        FROM optimization_results
+        ORDER BY id DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    import json
+    results = []
+    for row in rows:
+        results.append({
+            "session_id": row[0],
+            "timestamp": row[1],
+            "context_data": json.loads(row[2]) if row[2] else None,
+            "result": json.loads(row[3]) if row[3] else None
+        })
+    return results
