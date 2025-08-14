@@ -668,18 +668,25 @@ def render_ai_interface():
                     
                     st.divider()
 def get_current_context():
+    """
+    รวบรวม context ปัจจุบันส่งให้ AI / ใช้บันทึก DB
+    """
     context = {}
+    # ผล Optimize ล่าสุด
     if st.session_state.get('last_optimize_result'):
-    context['last_optimize_result'] = st.session_state['last_optimize_result']
+        context['last_optimize_result'] = st.session_state['last_optimize_result']
+    # ตลาด
     context['market'] = st.session_state.get('selected_market', 'Unknown')
+    # หุ้นที่เลือก
     context['selected_stocks'] = st.session_state.get('selected_tickers', [])
+    # การตั้งค่า DCA
     context['dca_settings'] = {
         'monthly_invest': st.session_state.get('monthly_invest', 10000),
         'period': st.session_state.get('period', '1y')
     }
-        context['analysis_done'] = st.session_state.get('analysis_done', False)
+    # วิเคราะห์แล้วหรือยัง
+    context['analysis_done'] = st.session_state.get('analysis_done', False)
     return context
-    
 """def get_current_context():
     """Get current application context for AI queries."""
     context = {}
