@@ -4,4 +4,6 @@ pandas
 openpyxl
 xlsxwriter
 matplotlib
-backtesting
+
+
+google-generativeai
