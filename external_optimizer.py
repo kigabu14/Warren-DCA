@@ -15,7 +15,7 @@ class PortfolioOptimizer:
         self.dividends_map = dividends_map
 
     def _monthly_returns(self, close_series: pd.Series):
-        m = close_series.resample('M').last().dropna()
+        m = close_series.resample('ME').last().dropna()
         return m.pct_change().dropna()
 
     def _cagr(self, close_series: pd.Series):
