@@ -9,6 +9,9 @@ class AIDatabase:
     def __init__(self, db_path: str = "ai_queries.db"):
         self.db_path = db_path
         self.init_database()
+    def _get_conn(self):
+        import sqlite3
+        return sqlite3.connect(self.db_path)
     
     def init_database(self):
         """Initialize the database with required tables."""
@@ -216,6 +219,4 @@ class AIDatabase:
                 "result": json.loads(row[3]) if row[3] else None
             })
         return results
-    def _get_conn(self):
-        import sqlite3
-        return sqlite3.connect(self.db_path)
+    
