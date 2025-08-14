@@ -539,10 +539,10 @@ def render_ai_interface():
                                     dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
 
 # ตรวจสอบผลลัพธ์ (debug)
-st.write("DEBUG: tickers loaded =", list(prices_map.keys()))
-    for t, dfp in prices_map.items():
-        st.write(f"DEBUG {t} head =", dfp.head())
-        st.write(f"DEBUG {t} dtypes =", dfp.dtypes)
+                                    st.write("DEBUG: tickers loaded =", list(prices_map.keys()))
+                                        for t, dfp in prices_map.items():
+                                            st.write(f"DEBUG {t} head =", dfp.head())
+                                            st.write(f"DEBUG {t} dtypes =", dfp.dtypes)
                                 if not prices_map:
                                     st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
                                 else:
