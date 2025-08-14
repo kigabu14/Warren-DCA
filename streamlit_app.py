@@ -5,6 +5,13 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+import uuid
+from ai_helper import AIHelper
+from ai_database import AIDatabase
+from dca_data_loader import DCADataLoader
+from external_optimizer import PortfolioOptimizer
+
+
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -18,7 +25,7 @@ def human_format(num):
     return "%.1fP" % num
 
 def df_human_format(df):
-    return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
+    return df.map(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
 def calc_dividend_yield_manual(div, hist):
     """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
@@ -34,7 +41,7 @@ def calc_dividend_yield_manual(div, hist):
 def dca_simulation(hist_prices: pd.DataFrame, monthly_invest: float = 1000, div=None):
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
-    prices = hist_prices['Close'].resample('M').first().dropna()
+    prices = hist_prices['Close'].resample('ME').first().dropna()
     units = monthly_invest / prices
     total_units = units.sum()
     total_invested = monthly_invest * len(prices)
@@ -413,9 +420,347 @@ markets = {
     "Global": us_stocks + set100 + european_stocks + asian_stocks + australian_stocks
 }
 
+# ----------------- AI Chat Interface -----------------
+def initialize_ai_session():
+    """Initialize AI-related session state variables."""
+    if 'ai_helper' not in st.session_state:
+        st.session_state.ai_helper = AIHelper()
+    
+    if 'ai_database' not in st.session_state:
+        st.session_state.ai_database = AIDatabase()
+    
+    if 'conversation_history' not in st.session_state:
+        st.session_state.conversation_history = []
+    
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
+def render_ai_interface():
+    """Render the AI chat interface in the sidebar."""
+    with st.sidebar:
+                # ---------------- Portfolio Optimizer (AI) ----------------
+        st.markdown("---")
+        st.subheader("📊 Portfolio Optimizer (AI)")
+
+        # เตรียม state
+        if 'last_optimize_result' not in st.session_state:
+            st.session_state.last_optimize_result = None
+
+        if not st.session_state.get('analysis_done', False):
+            st.info("โปรดกดปุ่ม 'วิเคราะห์' ในหน้าหลักก่อน แล้วค่อย Optimize.")
+        else:
+            total_budget_sidebar = st.number_input(
+                "งบลงทุนรวม (Optimize)",
+                min_value=1000.0, max_value=5_000_000.0,
+                value=st.session_state.get("monthly_invest", 20000.0),
+                step=1000.0,
+                key="opt_total_budget"
+            )
+
+            objective_sidebar = st.selectbox(
+                "วัตถุประสงค์",
+                ["balanced", "maximize_return", "minimize_risk", "income"],
+                index=0,
+                key="opt_objective"
+            )
+
+            use_dca_budget = st.toggle("ใช้ค่า monthly_invest เป็นงบ", value=False)
+            if use_dca_budget:
+                total_budget_sidebar = float(st.session_state.get("monthly_invest", total_budget_sidebar))
+
+            run_opt_button = st.button("🚀 Optimize Portfolio", type="primary", use_container_width=True)
+
+            # แสดงผลล่าสุดแบบย่อ
+            if st.session_state.get('last_optimize_result'):
+                if st.checkbox("แสดงสรุป Optimize ล่าสุด"):
+                    opt = st.session_state.last_optimize_result
+                    st.write(f"Objective: {opt.get('objective','-')}")
+                    st.write(f"Exp Return: {opt['expected_return']*100:.2f}% | Exp Yield: {opt['expected_yield']*100:.2f}%")
+
+            if run_opt_button:
+                import time
+                now = time.time()
+                last_run = st.session_state.get("last_opt_run_time", 0)
+                if now - last_run < 3:
+                    st.warning("กรุณารอสักครู่ก่อนรันใหม่ (กันกดรัว)")
+                else:
+                    st.session_state.last_opt_run_time = now
+                    from external_optimizer import PortfolioOptimizer
+                    from dca_data_loader import DCADataLoader
+                    import pandas as pd
+
+                    @st.cache_data(show_spinner=False, ttl=3600)
+                    def load_price_and_div(ticker, period):
+                        loader = DCADataLoader()
+                        data = loader.fetch(ticker, period=period)
+                        hist_df = data.get('history') or data.get('historical_prices')
+                        if hist_df is None:
+                            return None, None
+                        if "Close" not in hist_df.columns and "Adj Close" in hist_df.columns:
+                            hist_df = hist_df.copy()
+                            hist_df["Close"] = hist_df["Adj Close"]
+                        div_data = data.get("dividends")
+                        if isinstance(div_data, pd.DataFrame) and {"Date","Dividend"}.issubset(div_data.columns):
+                            div_series = div_data.set_index("Date")["Dividend"]
+                        elif isinstance(div_data, pd.Series):
+                            div_series = div_data
+                        else:
+                            div_series = pd.Series(dtype=float)
+                        return hist_df, div_series
+
+                    with st.spinner("กำลัง Optimize พอร์ต..."):
+                        try:
+                            tickers = st.session_state.get('selected_tickers', [])
+                            period = st.session_state.get('period', '1y')
+                            if not tickers:
+                                st.warning("ยังไม่ได้เลือกหุ้น")
+                            else:
+                                prices_map = {}
+                                dividends_map = {}
+                                for tk in tickers:
+                                    hist_df, div_series = load_price_and_div(tk, period)
+                                    if hist_df is None or hist_df.empty:
+                                        st.warning(f"ข้าม {tk} (ไม่มีข้อมูลราคา)")
+                                        continue
+
+    # ให้แน่ใจว่า index เป็น DatetimeIndex
+                                    if not isinstance(hist_df.index, pd.DatetimeIndex):
+                                        hist_df = hist_df.copy()
+                                        hist_df.index = pd.to_datetime(hist_df.index, errors='coerce')
+                                        hist_df = hist_df.dropna(axis=0, subset=['Close'])  # กัน index เพี้ยน
+
+    # ตรวจว่ามีคอลัมน์ Close
+                                    if "Close" not in hist_df.columns:
+                                        st.warning(f"{tk}: ไม่มีคอลัมน์ Close ข้าม")
+                                        continue
+
+    # เก็บข้อมูลราคาปิดเท่านั้น
+                                    prices_map[tk] = hist_df[['Close']].copy()
+                                    dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
+
+# ตรวจสอบผลลัพธ์ (debug)
+                                    
+                                if not prices_map:
+                                    st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
+                                else:
+                                    if len(prices_map) < len(tickers):
+                                        st.info(f"ใช้ข้อมูลได้ {len(prices_map)}/{len(tickers)} ตัว")
+
+                                    optimizer = PortfolioOptimizer(prices_map, dividends_map)
+                                    opt_result = optimizer.optimize(
+                                        total_budget=total_budget_sidebar,
+                                        objective=objective_sidebar
+                                    )
+                                    st.session_state.last_optimize_result = opt_result
+
+                                    context_data = get_current_context()
+                                    context_data.update({
+                                        'total_budget': total_budget_sidebar,
+                                        'objective': objective_sidebar,
+                                        'tickers_used': list(prices_map.keys())
+                                    })
+
+                                    st.session_state.ai_database.store_optimization(
+                                        st.session_state.session_id,
+                                        context_data,
+                                        opt_result
+                                    )
+                                    st.success("✅ Optimize เสร็จสิ้น! ดูรายละเอียดในหน้าหลัก")
+                        except Exception as e:
+                            st.error(f"เกิดข้อผิดพลาด: {e}")
+        st.header("🤖 AI Financial Assistant")
+        
+        # Check if AI is configured
+        if not st.session_state.ai_helper.is_ready():
+            st.warning("⚠️ AI not configured. Please set GOOGLE_AI_API_KEY environment variable or in Streamlit secrets.")
+            with st.expander("Setup Instructions"):
+                st.markdown("""
+                **To enable AI features:**
+                1. Get a Google AI API key from [Google AI Studio](https://aistudio.google.com/)
+                2. Set it as environment variable: `GOOGLE_AI_API_KEY=your_key`
+                3. Or add to Streamlit secrets: `GOOGLE_AI_API_KEY = "your_key"`
+                4. Restart the application
+                """)
+            return
+        
+        # Display AI statistics
+        stats = st.session_state.ai_database.get_query_statistics()
+        st.caption(f"💬 Total queries: {stats['total_queries']} | Today: {stats['queries_today']}")
+        
+        # Sample questions
+        with st.expander("📝 คำถาม ถาม AI"):
+            sample_questions = st.session_state.ai_helper.get_sample_questions()
+            for i, question in enumerate(sample_questions[:5]):
+                if st.button(f"📌 {question[:50]}...", key=f"sample_{i}", help=question):
+                    st.session_state.ai_query_input = question
+                    st.rerun()
+        
+        # AI Query Input
+        ai_query = st.text_area(
+            "AI จะตอบ ให้ ถามมา:",
+            height=100,
+            placeholder="e.g., 'เราจะมาวิเคราะห์ กันสวมิญญาณความคิดของ ปู่ Warren Buffett ว่าถ้าเป็นปู่จะทำไง'",
+            key="ai_query_input"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            ask_button = st.button("🚀ส่งคำถาม ", type="primary", use_container_width=True)
+        with col2:
+            clear_button = st.button("🗑️ Clear Chat", use_container_width=True)
+        
+        if clear_button:
+            st.session_state.conversation_history = []
+            st.rerun()
+        
+        # Process AI query
+        if ask_button and ai_query.strip():
+            with st.spinner("🤔 ขอคิดก่อนะ ..."):
+                # Get current context
+                context_data = get_current_context()
+                
+                # Get AI response
+                response = st.session_state.ai_helper.query_ai(
+                    ai_query, 
+                    context_data, 
+                    st.session_state.conversation_history
+                )
+                
+                # Store in database
+                st.session_state.ai_database.store_query(
+                    ai_query, 
+                    response, 
+                    context_data, 
+                    st.session_state.session_id
+                )
+                
+                # Add to conversation history
+                st.session_state.conversation_history.append({
+                    'user': ai_query,
+                    'assistant': response,
+                    'timestamp': datetime.datetime.now().strftime("%H:%M:%S")
+                })
+                
+                # Clear input and rerun
+                st.session_state.ai_query_input = ""
+                st.rerun()
+        
+        # Display conversation history
+        if st.session_state.conversation_history:
+            st.subheader("💬 ความคิดเห็น ปู่")
+            
+            # Reverse to show latest first
+            for i, msg in enumerate(reversed(st.session_state.conversation_history[-5:])):
+                with st.container():
+                    st.markdown(f"**👤 คุณถาม ({msg['timestamp']}):**")
+                    st.markdown(msg['user'])
+                    
+                    st.markdown("**🤖 ปู่ AI ตอบ :**")
+                    st.markdown(msg['assistant'])
+                    
+                    st.divider()
+def get_current_context():
+    """
+    รวบรวม context ปัจจุบันส่งให้ AI / ใช้บันทึก DB
+    """
+    context = {}
+    # ผล Optimize ล่าสุด
+    if st.session_state.get('last_optimize_result'):
+        context['last_optimize_result'] = st.session_state['last_optimize_result']
+    # ตลาด
+    context['market'] = st.session_state.get('selected_market', 'Unknown')
+    # หุ้นที่เลือก
+    context['selected_stocks'] = st.session_state.get('selected_tickers', [])
+    # การตั้งค่า DCA
+    context['dca_settings'] = {
+        'monthly_invest': st.session_state.get('monthly_invest', 10000),
+        'period': st.session_state.get('period', '1y')
+    }
+    # วิเคราะห์แล้วหรือยัง
+    context['analysis_done'] = st.session_state.get('analysis_done', False)
+    return context
+
 # ----------------- UI & Main -----------------
 st.set_page_config(page_title="Warren-DCA วิเคราะห์หุ้น", layout="wide")
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน"])
+
+# Initialize AI session
+initialize_ai_session()
+
+# Render AI interface in sidebar
+render_ai_interface()
+
+# Main navigation
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน", "Optimization History" ,"AI Chat History"])
+
+if menu == "AI Chat History":
+    st.header("🤖 AI Chat History")
+    
+    if not st.session_state.ai_helper.is_ready():
+        st.warning("AI is not configured. Please configure your Google AI API key to use this feature.")
+        st.stop()
+    
+    # Display statistics
+    stats = st.session_state.ai_database.get_query_statistics()
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Queries", stats['total_queries'])
+    with col2:
+        st.metric("Queries Today", stats['queries_today'])
+    with col3:
+        if stats['last_query_time']:
+            st.metric("Last Query", stats['last_query_time'][:16])
+        else:
+            st.metric("Last Query", "None")
+    
+    # Search functionality
+    st.subheader("🔍 Search Chat History")
+    search_term = st.text_input("Search in queries and responses:", placeholder="Enter search term...")
+    
+    if search_term:
+        search_results = st.session_state.ai_database.search_queries(search_term, limit=20)
+        if search_results:
+            st.write(f"Found {len(search_results)} results for '{search_term}':")
+            for result in search_results:
+                with st.expander(f"Query on {result['timestamp'][:16]} - {result['query'][:50]}..."):
+                    st.markdown(f"**Query:** {result['query']}")
+                    st.markdown(f"**Response:** {result['response']}")
+                    if result['context_data']:
+                        st.json(result['context_data'])
+        
+        else:
+            st.info("No results found.")
+    
+    # Recent queries
+    st.subheader("📝 Recent Queries")
+    recent_queries = st.session_state.ai_database.get_recent_queries(limit=10)
+    
+    if recent_queries:
+        for query in recent_queries:
+            with st.expander(f"{query['timestamp'][:16]} - {query['query'][:60]}..."):
+                st.markdown(f"**Query:** {query['query']}")
+                st.markdown(f"**Response:** {query['response']}")
+                if query['context_data']:
+                    st.markdown("**Context Data:**")
+                    st.json(query['context_data'])
+    else:
+        st.info("No chat history found. Start a conversation with the AI assistant!")
+    
+    # Cleanup options
+    st.subheader("🧹 Data Management")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Clear Old Data (30+ days)"):
+            deleted = st.session_state.ai_database.clear_old_queries(30)
+            st.success(f"Deleted {deleted} old queries.")
+            st.rerun()
+    with col2:
+        if st.button("⚠️ Clear All Data"):
+            if st.checkbox("I understand this will delete all chat history"):
+                deleted = st.session_state.ai_database.clear_old_queries(0)
+                st.success(f"Deleted all {deleted} queries.")
+                st.rerun()
+    
+    st.stop()
 
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
@@ -423,6 +768,20 @@ if menu == "คู่มือการใช้งาน":
 **Warren-DCA คืออะไร?**  
 โปรแกรมนี้ช่วยวิเคราะห์หุ้นตามแนวทางของ Warren Buffett (Buffett 11 Checklist แบบขยาย 18 เงื่อนไข) พร้อมจำลองการลงทุนแบบ DCA และคำนวณผลตอบแทนเงินปันผลย้อนหลัง 1 ปี  
 **แหล่งข้อมูล:** Yahoo Finance
+
+### 🤖 AI Financial Assistant (ใหม่!)
+โปรแกรมมี AI Assistant ที่ช่วยวิเคราะห์และให้คำแนะนำการลงทุน:
+- ใช้ Google Gemini AI เพื่อตอบคำถามเกี่ยวกับหุ้น
+- วิเคราะห์ข้อมูลตามหลักการของ Warren Buffett
+- ให้คำแนะนำการลงทุนแบบ DCA
+- เก็บประวัติการสนทนาไว้ในฐานข้อมูล
+- ไม่ทำให้หน้าเว็บรีเฟรชใหม่เมื่อถามคำถาม
+
+**วิธีใช้ AI:**
+1. ตั้งค่า Google AI API Key (ดูคำแนะนำในแถบด้านข้าง)
+2. เลือกหุ้นที่ต้องการวิเคราะห์
+3. ถามคำถามใน AI Assistant ที่แถบด้านข้าง
+4. ดูประวัติการสนทนาในหน้า "AI Chat History"
 
 ### กฎ 18 ข้อ (Buffett Checklist ย่อยจาก 11 หัวข้อ)
 1. Inventory & Net Earnings เพิ่มขึ้นต่อเนื่อง  
@@ -449,7 +808,18 @@ if menu == "คู่มือการใช้งาน":
 - ถ้าข้อมูลสำคัญไม่ครบ บางข้อจะขึ้น N/A
 - ใช้งบการเงินย้อนหลัง (Annual) ตามที่ Yahoo ให้ (ปกติ 4 ปี)
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
+- AI Assistant ต้องการ Google AI API Key เพื่อใช้งาน
 """)
+if menu == "Optimization History":
+    st.header("📊 Optimization History")
+    rec = st.session_state.ai_database.get_recent_optimizations(limit=10)
+    if not rec:
+        st.info("ยังไม่มีการ Optimize ที่บันทึกไว้")
+    else:
+        for r in rec:
+            with st.expander(f"{r['timestamp']} | Session {r['session_id'][:8]}..."):
+                st.json(r['context_data'])
+                st.json(r['result'])
     st.stop()
 
 # Market selection
@@ -457,7 +827,8 @@ selected_market = st.selectbox(
     "เลือกตลาดหุ้น",
     options=list(markets.keys()),
     index=0,  # Default to US
-    help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์"
+    help="เลือกตลาดหุ้นที่ต้องการวิเคราะห์",
+    key="selected_market"
 )
 
 # Get available tickers based on selected market
@@ -479,10 +850,11 @@ tickers = st.multiselect(
     f"เลือกหุ้น ({selected_market})",
     available_tickers,
     default=default_tickers,
-    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์"
+    help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์",
+    key="selected_tickers"
 )
-period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
-monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
+period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1, key="period")
+monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0, key="monthly_invest")
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
 if st.button("วิเคราะห์"):
@@ -656,7 +1028,7 @@ if st.button("วิเคราะห์"):
     if results_table:
         st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
         st.dataframe(pd.DataFrame(results_table))
-
+    st.session_state.analysis_done = True
     # --- Pie Chart ---
     pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
     pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
@@ -665,5 +1037,66 @@ if st.button("วิเคราะห์"):
     ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
     ax.set_title("INVEST/Profit/DivyYield")
     st.pyplot(fig)
+    st.markdown("---")
+    st.header("🔧 ผลการ Optimize (ถ้ามี)")
+
+    if st.session_state.get('last_optimize_result'):
+        opt = st.session_state.last_optimize_result
+        st.subheader(f"Objective: {opt.get('objective','-')}")
+        st.metric("Expected Return (CAGR Blend)", f"{opt['expected_return']*100:.2f}%")
+        st.metric("Expected Dividend Yield", f"{opt['expected_yield']*100:.2f}%")
+
+        alloc_rows = []
+        for tk, row in opt['allocations'].items():
+            alloc_rows.append({
+                "Ticker": tk,
+                "Weight (%)": round(row['weight']*100, 2),
+                "Allocation": round(row['allocation'], 2),
+                "CAGR (%)": round(row['cagr']*100, 2),
+                "Vol (annual)": round(row['vol'], 4),
+                "Div Yield (%)": round(row['div_yield']*100, 2)
+            })
+        df_alloc = pd.DataFrame(alloc_rows)
+        st.dataframe(df_alloc, use_container_width=True)
+
+        if st.button("💬 ให้ AI อธิบายผลลัพธ์ Optimize"):
+            follow_question = (
+                "ช่วยอธิบายเหตุผลของสัดส่วนพอร์ตนี้ ข้อดี ข้อควรระวัง "
+                "และเสนอวิธีปรับปรุงอีก 2 แบบ"
+            )
+            context_for_ai = {
+                "opt_result": opt,
+                "selected_stocks": st.session_state.get('selected_tickers', []),
+                "period": st.session_state.get('period'),
+                "monthly_invest": st.session_state.get('monthly_invest')
+            }
+            ai_text = st.session_state.ai_helper.query_ai(
+                follow_question,
+                context_for_ai,
+                st.session_state.conversation_history
+            )
+            st.session_state.ai_database.store_query(
+                follow_question,
+                ai_text,
+                context_for_ai,
+                st.session_state.session_id
+            )
+            st.session_state.conversation_history.append({
+                "user": follow_question,
+                "assistant": ai_text,
+                "timestamp": datetime.datetime.now().strftime("%H:%M:%S")
+            })
+            st.success("บันทึกคำอธิบายจาก AI แล้ว!")
+    else:
+        st.info("ยังไม่มีผล Optimize - ไปกดปุ่ม Optimize ที่ Sidebar")
+
+
+
+
+
+
 
 st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
+
+
+
