@@ -517,13 +517,12 @@ def render_ai_interface():
                             else:
                                 prices_map = {}
                                 dividends_map = {}
-                             prices_map = {}
-dividends_map = {}
+                         
 
-for tk in tickers:
-    hist_df, div_series = load_price_and_div(tk, period)
-    if hist_df is None or hist_df.empty:
-        continue
+                            for tk in tickers:
+                                hist_df, div_series = load_price_and_div(tk, period)
+                                if hist_df is None or hist_df.empty:
+                                continue
 
     # ให้แน่ใจว่า index เป็น DatetimeIndex
     if not isinstance(hist_df.index, pd.DatetimeIndex):
