@@ -346,7 +346,9 @@ def calc_dividend_yield_manual(div, hist):
     """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
     if hist_prices.empty:
         return {"error": "ไม่มีข้อมูลราคาหุ้น"}
-    prices = hist_prices['Close'].resample('M').first().dropna()
+    if hist.empty:
+        return {"error": "ไม่มีข้อมูลราคาหุ้น"}
+    prices = hist['Close'].resample('M').first().dropna()
     units = monthly_invest / prices
     total_units = units.sum()
     total_invested = monthly_invest * len(prices)
