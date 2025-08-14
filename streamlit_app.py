@@ -724,7 +724,7 @@ initialize_ai_session()
 
 # Render AI interface in sidebar
 render_ai_interface()
-
+get_recent_optimizations()
 # Main navigation
 menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน", "AI Chat History"])
 
