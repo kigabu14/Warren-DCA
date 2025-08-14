@@ -18,7 +18,7 @@ def human_format(num):
     return "%.1fP" % num
 
 def df_human_format(df):
-    return df.applymap(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
+    return df.map(lambda x: human_format(x) if isinstance(x, (int, float)) else x)
 
 def calc_dividend_yield_manual(div, hist):
     """คำนวณ Dividend Yield จากเงินปันผลที่ได้รับจริงย้อนหลัง 1 ปี"""
@@ -481,7 +481,7 @@ tickers = st.multiselect(
     default=default_tickers,
     help=f"เลือกหุ้นจากตลาด {selected_market} ที่ต้องการวิเคราะห์"
 )
-period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["1y", "5y", "max"], index=1)
+period = st.selectbox("เลือกช่วงเวลาราคาหุ้น", ["4h","1mo","6mo","1y", "5y", "max"], index=1)
 monthly_invest = st.number_input("จำนวนเงินลงทุน DCA ต่อเดือน (บาทหรือ USD)", min_value=100.0, max_value=10000.0, value=1000.0, step=100.0)
 show_financials = st.checkbox("แสดงงบการเงิน (Income Statement)", value=False)
 
