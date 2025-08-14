@@ -748,16 +748,7 @@ if menu == "AI Chat History":
                 st.rerun()
     
     st.stop()
-elif menu == "Optimization History":
-    st.header("📊 Optimization History")
-    rec = st.session_state.ai_database.get_recent_optimizations(limit=10)
-    if not rec:
-        st.info("ยังไม่มีการ Optimize ที่บันทึกไว้")
-    else:
-        for r in rec:
-            with st.expander(f"{r['timestamp']} | Session {r['session_id'][:8]}..."):
-                st.json(r['context_data'])
-                st.json(r['result'])
+
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
@@ -806,6 +797,16 @@ if menu == "คู่มือการใช้งาน":
 - รองรับหุ้นจากตลาดทั่วโลก: US, SET100, Europe, Asia, Australia
 - AI Assistant ต้องการ Google AI API Key เพื่อใช้งาน
 """)
+if menu == "Optimization History":
+    st.header("📊 Optimization History")
+    rec = st.session_state.ai_database.get_recent_optimizations(limit=10)
+    if not rec:
+        st.info("ยังไม่มีการ Optimize ที่บันทึกไว้")
+    else:
+        for r in rec:
+            with st.expander(f"{r['timestamp']} | Session {r['session_id'][:8]}..."):
+                st.json(r['context_data'])
+                st.json(r['result'])
     st.stop()
 
 # Market selection
