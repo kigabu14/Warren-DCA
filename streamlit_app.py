@@ -1063,7 +1063,7 @@ if st.button("วิเคราะห์"):
     if results_table:
         st.subheader("ตารางสรุปรวม (แต่ละหุ้น)")
         st.dataframe(pd.DataFrame(results_table))
-
+    st.session_state.analysis_done = True
     # --- Pie Chart ---
     pie_labels = ["TOTAL INVEST", "TOTAL PROFIT", "div"]
     pie_values = [total_invest, total_profit if total_profit > 0 else 0, total_div]
