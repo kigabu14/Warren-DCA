@@ -10,27 +10,6 @@ from ai_helper import AIHelper
 from ai_database import AIDatabase
 from dca_data_loader import DCADataLoader
 from external_optimizer import PortfolioOptimizer
-"""
-# Mock classes for External DCA AI Optimizer (simplified for demonstration)
-class DCAStrategyFactory:
-    @staticmethod
-    def create(strategy_type):
-        return {"type": strategy_type}
-
-class DCAOptimizer:
-    def __init__(self, prices_map, dividends_map, strategies=None):
-        self.prices_map = prices_map
-        self.dividends_map = dividends_map
-        self.strategies = strategies or []
-    
-    def optimize(self, total_budget, objective, step, max_allocation_per_ticker=None):
-        # Mock optimization result
-        return {
-            "optimal_allocation": {ticker: total_budget / len(self.prices_map) for ticker in self.prices_map},
-            "expected_return": 0.08,
-            "strategies_used": self.strategies
-        }
-"""
 
 
 
