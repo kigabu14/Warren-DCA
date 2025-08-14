@@ -552,6 +552,8 @@ def render_ai_interface():
                     st.divider()
 def get_current_context():
     context = {}
+    if st.session_state.get('last_optimize_result'):
+    context['last_optimize_result'] = st.session_state['last_optimize_result']
     context['market'] = st.session_state.get('selected_market', 'Unknown')
     context['selected_stocks'] = st.session_state.get('selected_tickers', [])
     context['dca_settings'] = {
@@ -560,6 +562,7 @@ def get_current_context():
     }
         context['analysis_done'] = st.session_state.get('analysis_done', False)
     return context
+    
 """def get_current_context():
     """Get current application context for AI queries."""
     context = {}
