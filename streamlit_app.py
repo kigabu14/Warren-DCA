@@ -5,7 +5,6 @@ import io
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-from database import StockDatabase
 
 # ----------------- Helper Functions -----------------
 def human_format(num):
@@ -898,5 +897,116 @@ if st.button("วิเคราะห์"):
     ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
     ax.set_title("INVEST/Profit/DivyYield")
     st.pyplot(fig)
+
+    # ===== Advanced External Optimizer (If Available) =====
+    st.header("🤖 Advanced External DCA Optimizer (AI)")
+    
+    # Check if DCA AI is available (mock condition for demonstration)
+    DCA_AI_AVAILABLE = True  # This would be a real check in production
+    
+    if DCA_AI_AVAILABLE and len(tickers) > 0:
+        st.subheader("External Optimizer Configuration")
+        
+        # Add optimizer controls
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            total_budget = st.number_input("งบประมาณรวม", min_value=1000.0, max_value=1000000.0, value=10000.0, step=1000.0)
+        with col2:
+            objective = st.selectbox("เป้าหมาย", ["maximize_return", "minimize_risk", "balanced"], index=0)
+        with col3:
+            step_unit = st.selectbox("หน่วยเวลา", ["monthly", "weekly", "daily"], index=0)
+        
+        # Add run button for optimizer
+        run_btn = st.button("🚀 เรียกใช้ External Optimizer", type="primary")
+        
+        if run_btn:
+            st.info("กำลังประมวลผล External Optimizer...")
+            
+            try:
+                # Initialize data structures
+                prices_map = {}
+                dividends_map = {}
+                picked = tickers  # Use selected tickers
+                base_period = period  # Use selected period
+                
+                # Initialize loader
+                loader = DCADataLoader()
+                
+                for tk in picked:
+                    data = loader.fetch(tk, period=base_period)
+
+                    # Support both 'history' and 'historical_prices' keys
+                    hist_df = None
+                    if "history" in data:
+                        hist_df = data["history"]
+                    elif "historical_prices" in data:
+                        hist_df = data["historical_prices"]
+                    
+                    if hist_df is None:
+                        st.error(f"ไม่พบข้อมูลราคาสำหรับ {tk} (ไม่มีคีย์ history / historical_prices)")
+                        continue
+                    if hasattr(hist_df, "empty") and hist_df.empty:
+                        st.warning(f"ข้อมูลราคาของ {tk} ว่าง ข้าม")
+                        continue
+                    # Ensure Close column exists
+                    if "Close" not in hist_df.columns and "Adj Close" in hist_df.columns:
+                        hist_df["Close"] = hist_df["Adj Close"]
+                    prices_map[tk] = hist_df
+
+                    # Normalize dividends
+                    div_data = data.get("dividends")
+                    if isinstance(div_data, pd.DataFrame) and {"Date", "Dividend"}.issubset(div_data.columns):
+                        try:
+                            div_series = div_data.set_index("Date")["Dividend"]
+                        except Exception:
+                            div_series = pd.Series(dtype=float)
+                    elif isinstance(div_data, pd.Series):
+                        div_series = div_data
+                    else:
+                        div_series = pd.Series(dtype=float)
+                    dividends_map[tk] = div_series
+
+                if not prices_map:
+                    st.error("ไม่สามารถรวบรวมข้อมูลราคาหุ้นใด ๆ ได้ ยกเลิกการ optimize")
+                else:
+                    strategies = [
+                        DCAStrategyFactory.create("equal_weight"),
+                        DCAStrategyFactory.create("value_weighted"),
+                    ]
+                    optimizer = DCAOptimizer(prices_map, dividends_map, strategies=strategies)
+                    external_result = optimizer.optimize(
+                        total_budget=total_budget,
+                        objective=objective,
+                        step=step_unit,
+                        max_allocation_per_ticker=None
+                    )
+                    
+                    # Display results
+                    st.success("✅ External Optimizer เสร็จสิ้น!")
+                    st.subheader("ผลลัพธ์การ Optimize")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Expected Annual Return", f"{external_result['expected_return']:.1%}")
+                        st.write("**Optimal Allocation:**")
+                        for ticker, allocation in external_result['optimal_allocation'].items():
+                            st.write(f"- {ticker}: {allocation:,.2f} บาท ({allocation/total_budget:.1%})")
+                    
+                    with col2:
+                        st.write("**Strategies Used:**")
+                        for strategy in external_result['strategies_used']:
+                            st.write(f"- {strategy['type']}")
+                        
+                        st.write("**Data Quality Summary:**")
+                        st.write(f"- ข้อมูลที่ใช้ได้: {len(prices_map)} หุ้น")
+                        st.write(f"- ข้อมูลเงินปันผล: {sum(1 for d in dividends_map.values() if not d.empty)} หุ้น")
+                        
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาดใน External Optimizer: {str(e)}")
+    else:
+        if not DCA_AI_AVAILABLE:
+            st.warning("External DCA AI Optimizer ไม่พร้อมใช้งาน")
+        else:
+            st.info("เลือกหุ้นอย่างน้อย 1 ตัวเพื่อใช้ External Optimizer")
 
 st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
