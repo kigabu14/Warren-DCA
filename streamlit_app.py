@@ -726,7 +726,7 @@ initialize_ai_session()
 render_ai_interface()
 get_recent_optimizations()
 # Main navigation
-menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน", "AI Chat History"])
+menu = st.sidebar.radio("เลือกหน้าที่ต้องการ", ["วิเคราะห์หุ้น", "คู่มือการใช้งาน", "Optimization History" ,"AI Chat History"])
 
 if menu == "AI Chat History":
     st.header("🤖 AI Chat History")
@@ -762,6 +762,7 @@ if menu == "AI Chat History":
                     st.markdown(f"**Response:** {result['response']}")
                     if result['context_data']:
                         st.json(result['context_data'])
+        
         else:
             st.info("No results found.")
     
@@ -796,7 +797,16 @@ if menu == "AI Chat History":
                 st.rerun()
     
     st.stop()
-
+elif menu == "Optimization History":
+    st.header("📊 Optimization History")
+    rec = st.session_state.ai_database.get_recent_optimizations(limit=10)
+    if not rec:
+        st.info("ยังไม่มีการ Optimize ที่บันทึกไว้")
+    else:
+        for r in rec:
+            with st.expander(f"{r['timestamp']} | Session {r['session_id'][:8]}..."):
+                st.json(r['context_data'])
+                st.json(r['result'])
 if menu == "คู่มือการใช้งาน":
     st.header("คู่มือการใช้งาน (ภาษาไทย)")
     st.markdown("""
