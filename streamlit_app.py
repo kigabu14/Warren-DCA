@@ -521,9 +521,9 @@ def render_ai_interface():
                                     hist_df, div_series = load_price_and_div(tk, period)
                                     if hist_df is None or hist_df.empty:
                                         continue
-                                    if not isinstance(hist_df.index, pd.DatetimeIndex):
-                                        hist_df = hist_df.copy()
-                                        hist_df.index = pd.to_datetime(hist_df.index)
+                                    if not isinstance(prices_map[tk].index, pd.DatetimeIndex):
+                                        prices_map[tk] = prices_map[tk].copy()
+                                        prices_map[tk].index = pd.to_datetime(prices_map[tk].index)
                                     prices_map[tk] = hist_df
                                     dividends_map[tk] = div_series
 
