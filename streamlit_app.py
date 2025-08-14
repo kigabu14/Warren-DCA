@@ -1055,15 +1055,63 @@ if st.button("วิเคราะห์"):
     ax.pie(pie_values, labels=pie_labels, autopct='%1.1f%%', startangle=90, colors=colors)
     ax.set_title("INVEST/Profit/DivyYield")
     st.pyplot(fig)
+    st.markdown("---")
+    st.header("🔧 ผลการ Optimize (ถ้ามี)")
+
+    if st.session_state.get('last_optimize_result'):
+        opt = st.session_state.last_optimize_result
+        st.subheader(f"Objective: {opt.get('objective','-')}")
+        st.metric("Expected Return (CAGR Blend)", f"{opt['expected_return']*100:.2f}%")
+        st.metric("Expected Dividend Yield", f"{opt['expected_yield']*100:.2f}%")
+
+        alloc_rows = []
+        for tk, row in opt['allocations'].items():
+            alloc_rows.append({
+                "Ticker": tk,
+                "Weight (%)": round(row['weight']*100, 2),
+                "Allocation": round(row['allocation'], 2),
+                "CAGR (%)": round(row['cagr']*100, 2),
+                "Vol (annual)": round(row['vol'], 4),
+                "Div Yield (%)": round(row['div_yield']*100, 2)
+            })
+        df_alloc = pd.DataFrame(alloc_rows)
+        st.dataframe(df_alloc, use_container_width=True)
+
+        if st.button("💬 ให้ AI อธิบายผลลัพธ์ Optimize"):
+            follow_question = (
+                "ช่วยอธิบายเหตุผลของสัดส่วนพอร์ตนี้ ข้อดี ข้อควรระวัง "
+                "และเสนอวิธีปรับปรุงอีก 2 แบบ"
+            )
+            context_for_ai = {
+                "opt_result": opt,
+                "selected_stocks": st.session_state.get('selected_tickers', []),
+                "period": st.session_state.get('period'),
+                "monthly_invest": st.session_state.get('monthly_invest')
+            }
+            ai_text = st.session_state.ai_helper.query_ai(
+                follow_question,
+                context_for_ai,
+                st.session_state.conversation_history
+            )
+            st.session_state.ai_database.store_query(
+                follow_question,
+                ai_text,
+                context_for_ai,
+                st.session_state.session_id
+            )
+            st.session_state.conversation_history.append({
+                "user": follow_question,
+                "assistant": ai_text,
+                "timestamp": datetime.datetime.now().strftime("%H:%M:%S")
+            })
+            st.success("บันทึกคำอธิบายจาก AI แล้ว!")
+    else:
+        st.info("ยังไม่มีผล Optimize - ไปกดปุ่ม Optimize ที่ Sidebar")
 
 
 
 
 
-
-# เพิ่ม state เก็บผล optimize
-if 'last_optimize_result' not in st.session_state:
-    st.session_state.last_optimize_result = None
 
 
 st.caption("Powered by Yahoo Finance | วิเคราะห์หุ้นด้วย Buffett Checklist (ขยาย 18 เงื่อนไข) + DCA + ปันผลย้อนหลัง 1 ปี")
