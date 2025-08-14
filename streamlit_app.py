@@ -520,6 +520,7 @@ def render_ai_interface():
                                 for tk in tickers:
                                     hist_df, div_series = load_price_and_div(tk, period)
                                     if hist_df is None or hist_df.empty:
+                                        st.warning(f"ข้าม {tk} (ไม่มีข้อมูลราคา)")
                                         continue
 
     # ให้แน่ใจว่า index เป็น DatetimeIndex
@@ -533,8 +534,15 @@ def render_ai_interface():
                                         st.warning(f"{tk}: ไม่มีคอลัมน์ Close ข้าม")
                                         continue
 
-                                    prices_map[tk] = hist_df[['Close']].copy()  # ลดเหลือที่จำเป็น
+    # เก็บข้อมูลราคาปิดเท่านั้น
+                                    prices_map[tk] = hist_df[['Close']].copy()
                                     dividends_map[tk] = div_series if div_series is not None else pd.Series(dtype=float)
+
+# ตรวจสอบผลลัพธ์ (debug)
+st.write("DEBUG: tickers loaded =", list(prices_map.keys()))
+    for t, dfp in prices_map.items():
+        st.write(f"DEBUG {t} head =", dfp.head())
+        st.write(f"DEBUG {t} dtypes =", dfp.dtypes)
                                 if not prices_map:
                                     st.error("ไม่มีข้อมูลราคาที่ใช้ได้")
                                 else:
