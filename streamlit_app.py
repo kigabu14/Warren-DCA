@@ -10,7 +10,7 @@ from ai_helper import AIHelper
 from ai_database import AIDatabase
 from dca_data_loader import DCADataLoader
 from external_optimizer import PortfolioOptimizer
-
+"""
 # Mock classes for External DCA AI Optimizer (simplified for demonstration)
 class DCAStrategyFactory:
     @staticmethod
@@ -30,7 +30,7 @@ class DCAOptimizer:
             "expected_return": 0.08,
             "strategies_used": self.strategies
         }
-
+"""
 
 
 
